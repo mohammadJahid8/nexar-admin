@@ -35,7 +35,7 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Server is running successfully' });
 });
 
-// Global error handler (must be last)
+
 app.use(errorHandler);
 
 // Start server
