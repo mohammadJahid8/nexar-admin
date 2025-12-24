@@ -43,7 +43,7 @@ jobs:
             npm install
 
             echo "🚀 Restarting admin API with PM2..."
-            pm2 restart admin-api || pm2 start server.js --name admin-api
+            pm2 restart nexar-admin-backend || pm2 start server.js --name nexar-admin-backend
 
             echo "📦 Installing frontend dependencies..."
             cd ../frontend
