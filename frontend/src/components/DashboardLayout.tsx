@@ -43,7 +43,9 @@ export function DashboardLayout() {
         <SidebarHeader className='border-b border-sidebar-border'>
           <div className='flex items-center gap-2 px-4 py-4'>
             <div className='flex flex-col'>
-              <span className='text-lg font-bold text-black'>CRM Admins</span>
+              <span className='text-lg font-bold text-black'>
+                CRM Admins test
+              </span>
               <span className='text-xs text-muted-foreground'>
                 Billing Control Panel
               </span>

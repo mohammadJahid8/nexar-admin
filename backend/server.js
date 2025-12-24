@@ -32,7 +32,7 @@ app.use('/api', routes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'Server is running successfully' });
+  res.json({ success: true, message: 'Server is running successfully!!' });
 });
 
 
