@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-// Skip JSON parsing for Stripe webhook - it needs the raw body for signature verification
+
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/webhooks/stripe') {
     next();
@@ -32,7 +32,7 @@ app.use('/api', routes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'Server is running' });
+  res.json({ success: true, message: 'Server is running successfully' });
 });
 
 // Global error handler (must be last)
