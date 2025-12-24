@@ -19,7 +19,21 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           debug: true
+          script_stop: true
           script: |
+            set -e
+
+            # Load NVM (GitHub Actions SSH session is non-interactive)
+            export NVM_DIR="/root/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+            # Use Node (your server has v22.17.1 installed via NVM)
+            nvm use 22 || nvm use --lts
+
+            echo "✅ Node: $(node -v)"
+            echo "✅ NPM: $(npm -v)"
+            echo "✅ PM2: $(pm2 -v)"
+
             echo "🔄 Pulling latest admin code..."
             cd /var/www/nexar-admin
             git pull origin deployment
@@ -29,7 +43,7 @@ jobs:
             npm install
 
             echo "🚀 Restarting admin API with PM2..."
-            pm2 restart nexar-admin-backend || pm2 start server.js --name nexar-admin-backend
+            pm2 restart admin-api || pm2 start server.js --name admin-api
 
             echo "📦 Installing frontend dependencies..."
             cd ../frontend
