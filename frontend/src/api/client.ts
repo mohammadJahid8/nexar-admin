@@ -1,12 +1,8 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Get admin API key from environment or prompt user
-const getAdminApiKey = (): string => {
-  const key = import.meta.env.VITE_ADMIN_API_KEY || localStorage.getItem('adminApiKey') || '';
-  if (!key) {
-    console.warn('Admin API key not configured. Set VITE_ADMIN_API_KEY or use localStorage.');
-  }
-  return key;
+// Get auth token from localStorage
+const getAuthToken = (): string | null => {
+  return localStorage.getItem('admin_token');
 };
 
 interface RequestOptions {
@@ -29,12 +25,13 @@ class ApiError extends Error {
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, headers = {} } = options;
+  const token = getAuthToken();
 
   const config: RequestInit = {
     method,
     headers: {
       'Content-Type': 'application/json',
-      'X-Admin-Api-Key': getAdminApiKey(),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...headers,
     },
   };
@@ -48,6 +45,11 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
+    // If unauthorized, clear token and redirect to login
+    if (response.status === 401) {
+      localStorage.removeItem('admin_token');
+      window.location.href = '/login';
+    }
     throw new ApiError(
       data?.message || `Request failed with status ${response.status}`,
       response.status,
@@ -65,5 +67,5 @@ export const api = {
   delete: <T>(endpoint: string) => request<T>(endpoint, { method: 'DELETE' }),
 };
 
-export { ApiError, getAdminApiKey };
+export { ApiError };
 export default api;

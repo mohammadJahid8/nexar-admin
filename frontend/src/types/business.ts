@@ -95,10 +95,41 @@ export interface BillingSummary {
   currentPeriodStart?: string;
   currentPeriodEnd?: string;
   billingEnabledAt?: string;
+  lastUsageSyncAt?: string;
+}
+
+export interface EstimatedBill {
+  currentSeatCount: number;
+  dailyRateCents: number;
+  dailyRateAud: string;
+  periodStart: string;
+  periodEnd: string;
+  totalDaysInPeriod: number;
+  daysRemaining: number;
+  reportedSeatDays: number;
+  reportedAmountCents: number;
+  reportedAmountAud: string;
+  unreportedSeatDays: number;
+  unreportedAmountCents: number;
+  unreportedAmountAud: string;
+  currentTotalSeatDays: number;
+  currentTotalCents: number;
+  currentTotalAud: string;
+  projectedTotalSeatDays: number;
+  projectedTotalCents: number;
+  projectedTotalAud: string;
+  perUserBreakdown?: {
+    externalUserId: string;
+    activatedAt: string;
+    lastBilledAt: string | null;
+    daysSinceStart: number;
+    daysUntilPeriodEnd: number;
+  }[];
 }
 
 export interface BillingDetailData {
   billing: BillingSummary;
+  estimatedBill: EstimatedBill | null;
   invoices: Invoice[];
   stripeInvoices: Invoice[];
   seatHistory: SeatEvent[];

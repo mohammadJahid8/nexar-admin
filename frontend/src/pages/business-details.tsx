@@ -4,6 +4,7 @@ import { businessApi } from '../api';
 import type { Business, BillingDetailData, Invoice, SeatEvent } from '../types';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { BusinessDetailSkeleton } from '../components/skeletons';
 import {
   ArrowLeft,
   Building2,
@@ -80,6 +81,7 @@ export function BusinessDetailPage() {
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [billing, setBilling] = useState<BillingDetailData | null>(null);
+  console.log('🚀 ~ BusinessDetailPage ~ billing:', billing);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -211,11 +213,7 @@ export function BusinessDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className='flex items-center justify-center h-64'>
-        <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600' />
-      </div>
-    );
+    return <BusinessDetailSkeleton />;
   }
 
   if (error && !business) {
@@ -478,14 +476,26 @@ export function BusinessDetailPage() {
                 Current Billed
               </div>
               <p className='text-2xl font-bold mt-1'>
-                {formatPrice(
-                  (billing?.billing.cumulativeSeatDays || 0) *
-                    Math.round(business.seatPriceAudCents / 30)
+                {billing?.estimatedBill
+                  ? `$${billing.estimatedBill.currentTotalAud}`
+                  : formatPrice(
+                      (billing?.billing.cumulativeSeatDays || 0) *
+                        Math.round(business.seatPriceAudCents / 30)
+                    )}
+              </p>
+              {/* <p className='text-xs text-muted-foreground mt-1'>
+                {billing?.estimatedBill ? (
+                  <>
+                    {billing.estimatedBill.reportedSeatDays} reported +{' '}
+                    {billing.estimatedBill.unreportedSeatDays} unreported
+                    seat-days
+                  </>
+                ) : (
+                  `${
+                    billing?.billing.cumulativeSeatDays || 0
+                  } seat-days reported`
                 )}
-              </p>
-              <p className='text-xs text-muted-foreground mt-1'>
-                {billing?.billing.cumulativeSeatDays || 0} seat-days reported
-              </p>
+              </p> */}
             </div>
             <div className='rounded-lg bg-muted/50 p-4'>
               <div className='flex items-center gap-2 text-muted-foreground text-sm'>
@@ -493,30 +503,15 @@ export function BusinessDetailPage() {
                 Projected Bill
               </div>
               <p className='text-2xl font-bold mt-1'>
-                {(() => {
-                  const dailyRate = Math.round(business.seatPriceAudCents / 30);
-                  const cumulativeDays =
-                    billing?.billing.cumulativeSeatDays || 0;
-                  const currentSeats = billing?.billing.currentSeatCount || 0;
-                  const periodEnd = billing?.billing.currentPeriodEnd
-                    ? new Date(billing.billing.currentPeriodEnd)
-                    : new Date();
-                  const now = new Date();
-                  const daysRemaining = Math.max(
-                    0,
-                    Math.ceil(
-                      (periodEnd.getTime() - now.getTime()) /
-                        (1000 * 60 * 60 * 24)
-                    )
-                  );
-                  const projectedTotal =
-                    (cumulativeDays + currentSeats * daysRemaining) * dailyRate;
-                  return formatPrice(projectedTotal);
-                })()}
+                {billing?.estimatedBill
+                  ? `$${billing.estimatedBill.projectedTotalAud}`
+                  : formatPrice(0)}
               </p>
-              <p className='text-xs text-muted-foreground mt-1'>
-                Est. at end of period
-              </p>
+              {/* <p className='text-xs text-muted-foreground mt-1'>
+                {billing?.estimatedBill
+                  ? `${billing.estimatedBill.projectedTotalSeatDays} seat-days (${billing.estimatedBill.currentSeatCount} users, ${billing.estimatedBill.daysRemaining} days left)`
+                  : 'Est. at end of period'}
+              </p> */}
             </div>
           </div>
 

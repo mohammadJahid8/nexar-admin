@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { businessApi, type DashboardStats } from '../api';
 import type { Business } from '../types';
 import { Button } from '../components/ui/button';
+import { DashboardSkeleton } from '../components/skeletons';
 import {
   Building2,
   Users,
@@ -23,6 +24,7 @@ export function DashboardPage() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
     null
   );
+  console.log('🚀 ~ DashboardPage ~ dashboardStats:', dashboardStats);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,11 +66,7 @@ export function DashboardPage() {
   };
 
   if (loading) {
-    return (
-      <div className='flex items-center justify-center h-64'>
-        <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600' />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   return (

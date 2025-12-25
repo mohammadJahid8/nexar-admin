@@ -1,3 +1,3 @@
-export { api, ApiError, getAdminApiKey } from './client';
+export { api, ApiError } from './client';
 export { businessApi, type DashboardStats } from './businesses';
 
