@@ -1,6 +1,6 @@
 import express from 'express';
 import { crmAuth, rateLimiter } from '../middleware/index.js';
-import { CrmController } from '../controllers/crmController.js';
+import { CrmController } from '../controllers/crm.controller.js';
 
 const router = express.Router();
 

@@ -106,6 +106,97 @@ export const mapSubscriptionStatus = (stripeStatus) => {
   return statusMap[stripeStatus] || 'not_enabled';
 };
 
+/**
+ * Calculate estimated bill for a business using per-user billing
+ * Requires UserSeat records for accurate per-user billing.
+ * 
+ * @param {Object} business - Business document (lean object)
+ * @param {Object} UserSeatModel - UserSeat mongoose model (required)
+ * @returns {Object|null} Estimated bill breakdown, or null if billing not active
+ */
+export const calculateEstimatedBill = async (business, UserSeatModel) => {
+  if (business.billingStatus !== 'active') {
+    return null;
+  }
+
+  if (!UserSeatModel) {
+    throw new Error('UserSeatModel is required for billing calculation');
+  }
+
+  const now = new Date();
+  const periodStart = new Date(business.currentPeriodStart || business.billingEnabledAt);
+  const periodEnd = new Date(business.currentPeriodEnd);
+  const dailyRate = Math.round(business.seatPriceAudCents / 30);
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  // Get active seats for per-user billing
+  const activeSeats = await UserSeatModel.getActiveSeats(business._id);
+
+  let currentUnreportedDays = 0;
+  let projectedTotalDays = 0;
+  const perUserBreakdown = [];
+
+  for (const seat of activeSeats) {
+    const startDate = new Date(seat.lastBilledAt || seat.activatedAt);
+
+    // Days since last billing (unreported)
+    const daysSinceStart = Math.floor((now - startDate) / msPerDay);
+    currentUnreportedDays += Math.max(0, daysSinceStart);
+
+    // Days until period end (projected)
+    const daysUntilEnd = Math.floor((periodEnd - startDate) / msPerDay);
+    projectedTotalDays += Math.max(0, daysUntilEnd);
+
+    perUserBreakdown.push({
+      externalUserId: seat.externalUserId,
+      activatedAt: seat.activatedAt,
+      lastBilledAt: seat.lastBilledAt,
+      daysSinceStart: Math.max(0, daysSinceStart),
+      daysUntilPeriodEnd: Math.max(0, daysUntilEnd),
+    });
+  }
+
+  const reportedSeatDays = business.cumulativeSeatDays || 0;
+  const reportedAmountCents = reportedSeatDays * dailyRate;
+
+  const unreportedSeatDays = currentUnreportedDays;
+  const projectedTotalSeatDays = reportedSeatDays + projectedTotalDays;
+
+  const unreportedAmountCents = unreportedSeatDays * dailyRate;
+  const currentTotalSeatDays = reportedSeatDays + unreportedSeatDays;
+  const currentTotalCents = currentTotalSeatDays * dailyRate;
+  const projectedTotalCents = projectedTotalSeatDays * dailyRate;
+
+  return {
+    currentSeatCount: activeSeats.length,
+    dailyRateCents: dailyRate,
+    dailyRateAud: (dailyRate / 100).toFixed(2),
+
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+    totalDaysInPeriod: Math.floor((periodEnd - periodStart) / msPerDay),
+    daysRemaining: Math.max(0, Math.floor((periodEnd - now) / msPerDay)),
+
+    reportedSeatDays,
+    reportedAmountCents,
+    reportedAmountAud: (reportedAmountCents / 100).toFixed(2),
+
+    unreportedSeatDays,
+    unreportedAmountCents,
+    unreportedAmountAud: (unreportedAmountCents / 100).toFixed(2),
+
+    currentTotalSeatDays,
+    currentTotalCents,
+    currentTotalAud: (currentTotalCents / 100).toFixed(2),
+
+    projectedTotalSeatDays,
+    projectedTotalCents,
+    projectedTotalAud: (projectedTotalCents / 100).toFixed(2),
+
+    perUserBreakdown,
+  };
+};
+
 export default {
   getNextFirstOfMonth,
   generateApiKey,
@@ -113,4 +204,5 @@ export default {
   isValidRedirectUrl,
   calculateProration,
   mapSubscriptionStatus,
+  calculateEstimatedBill,
 };

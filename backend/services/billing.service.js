@@ -1,5 +1,5 @@
 import httpStatus from 'http-status';
-import { Business, SeatEventLog } from '../models/index.js';
+import { Business, SeatEventLog, UserSeat } from '../models/index.js';
 import {
   createCustomer,
   createSetupCheckout,
@@ -7,14 +7,14 @@ import {
   reportSeatDays,
   listInvoices,
   createBillingPortal
-} from './stripeService.js';
-import { daysBetween } from '../utils/daysBetween.js';
+} from './stripe.service.js';
+import { calculateEstimatedBill } from '../utils/billingUtils.js';
 
 /**
  * Create Setup Checkout
  */
 export const createCheckoutSession = async (business, data) => {
-  const { successUrl, cancelUrl } = data;
+  const { successUrl, cancelUrl, initialUserIds } = data;
 
   if (!successUrl || !cancelUrl) {
     const error = new Error('successUrl and cancelUrl are required');
@@ -39,7 +39,8 @@ export const createCheckoutSession = async (business, data) => {
   const session = await createSetupCheckout({
     business: freshBusiness,
     successUrl,
-    cancelUrl
+    cancelUrl,
+    initialUserIds
   });
 
   freshBusiness.billingStatus = 'pending_checkout';
@@ -83,14 +84,17 @@ export const activateBilling = async (businessId) => {
 };
 
 /**
- * Sync seats with daily proration
+ * Sync seats with per-user tracking
+ * Requires activeUserIds array for accurate per-user billing.
+ * 
  * Uses MongoDB transaction to prevent race conditions from concurrent requests
  */
 export const syncSeats = async (business, data) => {
-  const { activeSeatCount, reason } = data;
+  const { activeUserIds, reason } = data;
 
-  if (!Number.isInteger(activeSeatCount) || activeSeatCount < 1) {
-    const error = new Error('activeSeatCount must be an integer >= 1');
+  // Validate input - only activeUserIds is supported
+  if (!Array.isArray(activeUserIds) || activeUserIds.length < 1) {
+    const error = new Error('activeUserIds array is required and must contain at least 1 user');
     error.statusCode = httpStatus.BAD_REQUEST;
     throw error;
   }
@@ -124,39 +128,56 @@ export const syncSeats = async (business, data) => {
       }
 
       const now = new Date();
-      const lastSync = freshBusiness.lastUsageSyncAt || freshBusiness.billingEnabledAt || now;
       const previousCount = freshBusiness.currentSeatCount;
-      const daysElapsed = daysBetween(lastSync, now);
+
+      // Sync user seats (add new, deactivate removed)
+      const syncResult = await UserSeat.syncWithUserIds(
+        freshBusiness._id,
+        activeUserIds,
+        reason
+      );
+
+      // Calculate per-user seat-days since last billing
+      const seatDaysToReport = await UserSeat.calculateSeatDays(freshBusiness._id, now);
 
       let seatDaysReported = 0;
+      if (seatDaysToReport > 0) {
+        // Report to Stripe
+        await reportSeatDays(freshBusiness.stripeSubscriptionItemId, seatDaysToReport);
+        console.log(`Reported ${seatDaysToReport} seat-days`);
 
-      // Report seat-days to Stripe (outside transaction but before DB update)
-      if (daysElapsed > 0 && previousCount > 0) {
-        seatDaysReported = previousCount * daysElapsed;
+        // Mark all active seats as billed up to now
+        await UserSeat.markDaysBilled(freshBusiness._id, now);
 
-        // Report to Stripe first - if this fails, we don't update DB
-        await reportSeatDays(freshBusiness.stripeSubscriptionItemId, seatDaysReported);
-        console.log(`Reported ${seatDaysReported} seat-days (${previousCount} seats × ${daysElapsed} days)`);
-
-        // Only update cumulative after successful Stripe reporting
-        freshBusiness.cumulativeSeatDays = (freshBusiness.cumulativeSeatDays || 0) + seatDaysReported;
+        // Update business cumulative
+        freshBusiness.cumulativeSeatDays = (freshBusiness.cumulativeSeatDays || 0) + seatDaysToReport;
+        freshBusiness.lastUsageSyncAt = now;
+        seatDaysReported = seatDaysToReport;
       }
 
-      // Update seat count and sync timestamp
-      freshBusiness.currentSeatCount = activeSeatCount;
-      freshBusiness.lastUsageSyncAt = now;
+      // Update seat count
+      freshBusiness.currentSeatCount = activeUserIds.length;
       await freshBusiness.save({ session });
 
-      // Log seat change if it changed
-      if (previousCount !== activeSeatCount) {
-        await SeatEventLog.logChange(freshBusiness._id, previousCount, activeSeatCount, reason, 'crm-sync');
+      // Log seat changes
+      if (syncResult.added.length > 0 || syncResult.removed.length > 0) {
+        await SeatEventLog.logChange(
+          freshBusiness._id,
+          previousCount,
+          activeUserIds.length,
+          reason || `Added: ${syncResult.added.length}, Removed: ${syncResult.removed.length}`,
+          'crm-sync'
+        );
       }
 
       result = {
-        currentSeatCount: activeSeatCount,
+        currentSeatCount: activeUserIds.length,
         previousSeatCount: previousCount,
         seatDaysReported,
-        cumulativeSeatDays: freshBusiness.cumulativeSeatDays || 0
+        cumulativeSeatDays: freshBusiness.cumulativeSeatDays || 0,
+        usersAdded: syncResult.added,
+        usersRemoved: syncResult.removed,
+        usersReactivated: syncResult.reactivated,
       };
     });
 
@@ -183,12 +204,14 @@ export const getBillingStatus = async (business) => {
 
 /**
  * Get ACCURATE estimated bill for current period
- * Includes already-reported usage + unreported days at current rate
+ * Uses the shared calculateEstimatedBillAsync utility for per-user accuracy
  */
 export const getEstimatedBill = async (business) => {
   const freshBusiness = await Business.findById(business._id).lean();
 
-  if (freshBusiness.billingStatus !== 'active') {
+  const estimatedBill = await calculateEstimatedBill(freshBusiness, UserSeat);
+
+  if (!estimatedBill) {
     return {
       totalAmountCents: 0,
       totalAmountAud: '0.00',
@@ -196,66 +219,7 @@ export const getEstimatedBill = async (business) => {
     };
   }
 
-  const now = new Date();
-  const periodStart = new Date(freshBusiness.currentPeriodStart || freshBusiness.billingEnabledAt);
-  const periodEnd = new Date(freshBusiness.currentPeriodEnd);
-  const lastSync = new Date(freshBusiness.lastUsageSyncAt || periodStart);
-
-  const totalDaysInPeriod = daysBetween(periodStart, periodEnd);
-  const daysRemaining = Math.max(0, daysBetween(now, periodEnd));
-  const daysSinceLastSync = daysBetween(lastSync, now);
-
-  const dailyRate = Math.round(freshBusiness.seatPriceAudCents / 30);
-  const seats = freshBusiness.currentSeatCount;
-
-  // Already reported seat-days
-  const reportedSeatDays = freshBusiness.cumulativeSeatDays || 0;
-  const reportedAmountCents = reportedSeatDays * dailyRate;
-
-  // Unreported seat-days (since last sync)
-  const unreportedSeatDays = seats * daysSinceLastSync;
-  const unreportedAmountCents = unreportedSeatDays * dailyRate;
-
-  // Current total (what you owe NOW)
-  const currentTotalSeatDays = reportedSeatDays + unreportedSeatDays;
-  const currentTotalCents = currentTotalSeatDays * dailyRate;
-
-  // Projected total (if seats stay same until period end)
-  const projectedRemainingSeatDays = seats * daysRemaining;
-  const projectedTotalSeatDays = currentTotalSeatDays + projectedRemainingSeatDays;
-  const projectedTotalCents = projectedTotalSeatDays * dailyRate;
-
-  return {
-    // Current state
-    currentSeatCount: seats,
-    dailyRateCents: dailyRate,
-    dailyRateAud: (dailyRate / 100).toFixed(2),
-
-    // Period info
-    periodStart: periodStart.toISOString(),
-    periodEnd: periodEnd.toISOString(),
-    totalDaysInPeriod,
-    daysRemaining,
-
-    // Usage breakdown
-    reportedSeatDays,
-    reportedAmountCents,
-    reportedAmountAud: (reportedAmountCents / 100).toFixed(2),
-
-    unreportedSeatDays,
-    unreportedAmountCents,
-    unreportedAmountAud: (unreportedAmountCents / 100).toFixed(2),
-
-    // Current bill (what you owe now)
-    currentTotalSeatDays,
-    currentTotalCents,
-    currentTotalAud: (currentTotalCents / 100).toFixed(2),
-
-    // Projected bill (if seats stay same)
-    projectedTotalSeatDays,
-    projectedTotalCents,
-    projectedTotalAud: (projectedTotalCents / 100).toFixed(2)
-  };
+  return estimatedBill;
 };
 
 /**

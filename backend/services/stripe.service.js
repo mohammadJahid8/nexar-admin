@@ -73,17 +73,24 @@ export const createCustomer = async (business) => {
 /**
  * Create Setup Checkout
  */
-export const createSetupCheckout = async ({ business, successUrl, cancelUrl }) => {
+export const createSetupCheckout = async ({ business, successUrl, cancelUrl, initialUserIds }) => {
+  const metadata = {
+    nexer_business_id: business._id.toString(),
+    external_business_id: business.externalBusinessId
+  };
+
+  // Store initial user IDs if provided (for per-user billing)
+  if (Array.isArray(initialUserIds) && initialUserIds.length > 0) {
+    metadata.initial_user_ids = JSON.stringify(initialUserIds);
+  }
+
   return stripe.instance.checkout.sessions.create({
     mode: 'setup',
     customer: business.stripeCustomerId,
     success_url: successUrl,
     cancel_url: cancelUrl,
     payment_method_types: ['card'],
-    metadata: {
-      nexer_business_id: business._id.toString(),
-      external_business_id: business.externalBusinessId
-    }
+    metadata
   });
 };
 

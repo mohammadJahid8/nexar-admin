@@ -83,7 +83,7 @@ async function enableBilling(successUrl, cancelUrl, ownerEmail) {
 
 ### 2. 👥 Sync Seats (REQUIRED - Daily)
 
-**Purpose**: Report the current number of active users to the billing system. **This is the most important API to call!**
+**Purpose**: Report the current active users to the billing system. **This is the most important API to call!**
 
 **When to Call**:
 
@@ -99,8 +99,8 @@ POST /api/crm/billing/seats/sync
 
 ```json
 {
-  "activeSeatCount": 10,
-  "reason": "New employee onboarded" // Optional
+  "activeUserIds": ["user-1", "user-2", "user-3"],
+  "reason": "User sync" // Optional
 }
 ```
 
@@ -111,11 +111,13 @@ POST /api/crm/billing/seats/sync
   "success": true,
   "message": "Seats synced successfully",
   "data": {
-    "currentSeatCount": 10,
-    "previousSeatCount": 9,
-    "delta": 1,
-    "seatDaysReported": 9,
-    "cumulativeSeatDays": 45
+    "currentSeatCount": 3,
+    "previousSeatCount": 2,
+    "seatDaysReported": 4,
+    "cumulativeSeatDays": 45,
+    "usersAdded": ["user-3"],
+    "usersRemoved": [],
+    "usersReactivated": []
   }
 }
 ```
@@ -123,8 +125,8 @@ POST /api/crm/billing/seats/sync
 **Implementation:**
 
 ```javascript
-// Call this whenever user count changes
-async function syncSeats(activeSeatCount, reason = '') {
+// Call this whenever users change
+async function syncSeats(activeUserIds, reason = '') {
   const response = await fetch(`${API_BASE}/billing/seats/sync`, {
     method: 'POST',
     headers: {
@@ -132,24 +134,24 @@ async function syncSeats(activeSeatCount, reason = '') {
       'X-Business-Id': BUSINESS_ID,
       'X-Api-Key': API_KEY,
     },
-    body: JSON.stringify({ activeSeatCount, reason }),
+    body: JSON.stringify({ activeUserIds, reason }),
   });
 
   return response.json();
 }
 
-// Example: Call when adding a user
+// Example: When a user is added
 async function addUser(userData) {
   await createUser(userData);
-  const totalUsers = await getActiveUserCount();
-  await syncSeats(totalUsers, 'User added');
+  const allActiveUserIds = await getAllActiveUserIds(); // Returns array of user IDs
+  await syncSeats(allActiveUserIds, 'User added');
 }
 
-// Example: Call when removing a user
+// Example: When a user is removed
 async function removeUser(userId) {
   await deactivateUser(userId);
-  const totalUsers = await getActiveUserCount();
-  await syncSeats(totalUsers, 'User removed');
+  const allActiveUserIds = await getAllActiveUserIds();
+  await syncSeats(allActiveUserIds, 'User removed');
 }
 ```
 
@@ -160,9 +162,9 @@ async function removeUser(userId) {
 const cron = require('node-cron');
 
 cron.schedule('0 0 * * *', async () => {
-  const activeUsers = await getActiveUserCount();
-  await syncSeats(activeUsers, 'Daily sync');
-  console.log('Daily seat sync completed:', activeUsers);
+  const activeUserIds = await getAllActiveUserIds();
+  await syncSeats(activeUserIds, 'Daily sync');
+  console.log('Daily seat sync completed:', activeUserIds.length);
 });
 ```
 
@@ -274,39 +276,6 @@ async function getInvoices(limit = 10) {
   });
 
   return response.json();
-}
-```
-
----
-
-### 5. 🔮 Preview Upcoming Invoice
-
-**Purpose**: Show what the next invoice will look like.
-
-**When to Call**: To display projected billing amount.
-
-```http
-GET /api/crm/billing/upcoming
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "amountDue": 25000,
-    "currency": "aud",
-    "periodStart": "2024-02-01T00:00:00.000Z",
-    "periodEnd": "2024-03-01T00:00:00.000Z",
-    "lines": [
-      {
-        "description": "150 × CRM Seat (Daily)",
-        "amount": 25000,
-        "quantity": 150
-      }
-    ]
-  }
 }
 ```
 

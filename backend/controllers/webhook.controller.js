@@ -1,4 +1,4 @@
-import { WebhookService } from '../services/webhookService.js';
+import { WebhookService } from '../services/webhook.service.js';
 import catchAsync from '../utils/catchAsync.js';
 import sendResponse from '../utils/sendResponse.js';
 import httpStatus from 'http-status';

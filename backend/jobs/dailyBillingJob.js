@@ -1,44 +1,62 @@
 import cron from 'node-cron';
-import Business from '../models/Business.js';
-import { reportSeatDays } from '../services/stripeService.js';
-import { daysBetween } from '../utils/daysBetween.js';
+import Business from '../models/business.model.js';
+import UserSeat from '../models/user-seat.model.js';
+import { reportSeatDays } from '../services/stripe.service.js';
 
 
 /**
  * Process daily billing for a single business
+ * Uses per-user (UserSeat) tracking for accurate billing
  */
 async function processDailyBilling(business) {
   try {
     const now = new Date();
-    // now time is 22dec 11:30pm
-    // const now = new Date('2025-12-22T23:30:00.000Z');
-    const lastSync = business.lastUsageSyncAt || business.billingEnabledAt || now;
-    const daysElapsed = daysBetween(lastSync, now);
+    const msPerDay = 24 * 60 * 60 * 1000;
 
-    if (daysElapsed === 0) {
-      console.log(`[DailyBilling] ${business.externalBusinessId}: No days elapsed, skipping`);
-      return { skipped: true };
+    // Get active UserSeat records
+    const activeSeats = await UserSeat.find({
+      businessId: business._id,
+      deactivatedAt: null,
+    });
+
+    if (activeSeats.length === 0) {
+      console.log(`[DailyBilling] ${business.externalBusinessId}: No active users, skipping`);
+      return { skipped: true, reason: 'No active users' };
     }
 
-    const seatDaysToReport = business.currentSeatCount * daysElapsed;
-
-    if (seatDaysToReport > 0) {
-      await reportSeatDays(business.stripeSubscriptionItemId, seatDaysToReport);
-
-      business.cumulativeSeatDays = (business.cumulativeSeatDays || 0) + seatDaysToReport;
-      business.lastUsageSyncAt = now;
-      await business.save();
-
-      console.log(`[DailyBilling] ${business.externalBusinessId}: Reported ${seatDaysToReport} seat-days (${business.currentSeatCount} seats × ${daysElapsed} days)`);
-
-      return {
-        success: true,
-        seatDaysReported: seatDaysToReport,
-        daysElapsed
-      };
+    // Calculate per-user seat-days
+    let seatDaysToReport = 0;
+    for (const seat of activeSeats) {
+      const startDate = seat.lastBilledAt || seat.activatedAt;
+      const daysElapsed = Math.floor((now - startDate) / msPerDay);
+      if (daysElapsed > 0) {
+        seatDaysToReport += daysElapsed;
+      }
     }
 
-    return { skipped: true, reason: 'No usage to report' };
+    if (seatDaysToReport === 0) {
+      console.log(`[DailyBilling] ${business.externalBusinessId}: No days elapsed for any user, skipping`);
+      return { skipped: true, reason: 'No days elapsed' };
+    }
+
+    // Report to Stripe
+    await reportSeatDays(business.stripeSubscriptionItemId, seatDaysToReport);
+
+    // Mark all active seats as billed up to now
+    await UserSeat.markDaysBilled(business._id, now);
+
+    // Update business cumulative
+    business.cumulativeSeatDays = (business.cumulativeSeatDays || 0) + seatDaysToReport;
+    business.lastUsageSyncAt = now;
+    await business.save();
+
+    console.log(`[DailyBilling] ${business.externalBusinessId}: Reported ${seatDaysToReport} seat-days from ${activeSeats.length} users`);
+
+    return {
+      success: true,
+      seatDaysReported: seatDaysToReport,
+      userCount: activeSeats.length,
+    };
   } catch (err) {
     console.error(`[DailyBilling] ${business.externalBusinessId}: Error -`, err.message);
     return { error: err.message };

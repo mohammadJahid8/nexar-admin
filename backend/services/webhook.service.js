@@ -1,7 +1,7 @@
 import httpStatus from 'http-status';
-import { Business, StripeEvent, InvoiceRecord } from '../models/index.js';
-import { constructWebhookEvent } from './stripeService.js';
-import { activateBilling } from './billingService.js';
+import { Business, StripeEvent, InvoiceRecord, SeatEventLog } from '../models/index.js';
+import { constructWebhookEvent } from './stripe.service.js';
+import { activateBilling } from './billing.service.js';
 
 /**
  * Handle Stripe webhook events
@@ -45,6 +45,10 @@ export const handleWebhook = async (payload, signature) => {
 
       case 'invoice.payment_failed':
         businessId = await handleInvoicePaymentFailed(event.data.object);
+        break;
+
+      case 'customer.subscription.updated':
+        businessId = await handleSubscriptionUpdated(event.data.object);
         break;
 
       case 'customer.subscription.deleted':
@@ -94,6 +98,50 @@ async function handleCheckoutCompleted(session) {
   if (session.mode === 'setup') {
     try {
       await activateBilling(businessId);
+
+      // Create initial UserSeat records if initialUserIds were provided
+      const initialUserIdsStr = session.metadata?.initial_user_ids;
+      if (initialUserIdsStr) {
+        try {
+          const initialUserIds = JSON.parse(initialUserIdsStr);
+          if (Array.isArray(initialUserIds) && initialUserIds.length > 0) {
+            const { UserSeat } = await import('../models/index.js');
+
+            const now = new Date();
+            for (const userId of initialUserIds) {
+              await UserSeat.findOneAndUpdate(
+                { businessId: business._id, externalUserId: userId },
+                {
+                  businessId: business._id,
+                  externalUserId: userId,
+                  activatedAt: now,
+                  deactivatedAt: null,
+                  lastBilledAt: null,
+                  cumulativeDays: 0
+                },
+                { upsert: true, new: true }
+              );
+            }
+
+            // Update business seat count
+            business.currentSeatCount = initialUserIds.length;
+            await business.save();
+
+            // Log the initial seat setup
+            await SeatEventLog.logChange(
+              business._id,
+              0,  // Previous count
+              initialUserIds.length,
+              `Billing enabled with ${initialUserIds.length} initial user(s)`,
+              'billing-activation'
+            );
+
+            console.log(`Created ${initialUserIds.length} initial UserSeat records`);
+          }
+        } catch (parseErr) {
+          console.error('Failed to parse initial_user_ids:', parseErr.message);
+        }
+      }
     } catch (err) {
       console.error('Activate billing failed:', err.message);
       throw err;
@@ -148,6 +196,70 @@ async function handleInvoicePaymentFailed(invoice) {
 }
 
 /**
+ * Handle subscription updated
+ * This handles status changes including scheduled cancellations
+ */
+async function handleSubscriptionUpdated(subscription) {
+  let business = await Business.findOne({ stripeSubscriptionId: subscription.id });
+  if (!business) {
+    // Try finding by customer ID as fallback
+    business = await Business.findOne({ stripeCustomerId: subscription.customer });
+    if (!business) return null;
+
+    // Update subscription ID if it was missing
+    business.stripeSubscriptionId = subscription.id;
+  }
+
+  // Map Stripe subscription status to our billing status
+  const previousStatus = business.billingStatus;
+
+  switch (subscription.status) {
+    case 'active':
+    case 'trialing':
+      business.billingStatus = 'active';
+      break;
+    case 'past_due':
+    case 'unpaid':
+      business.billingStatus = 'past_due';
+      break;
+    case 'canceled':
+    case 'incomplete_expired':
+      business.billingStatus = 'canceled';
+      break;
+    case 'incomplete':
+    case 'paused':
+      business.billingStatus = 'pending_checkout';
+      break;
+  }
+
+  // Track if subscription is scheduled to cancel at period end
+  if (subscription.cancel_at_period_end) {
+    business.cancelAtPeriodEnd = true;
+    business.cancelAt = subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null;
+    console.log(`[Webhook] Subscription ${subscription.id} scheduled to cancel at ${business.cancelAt}`);
+  } else {
+    // Subscription was un-canceled (reactivated)
+    business.cancelAtPeriodEnd = false;
+    business.cancelAt = null;
+    if (previousStatus !== business.billingStatus) {
+      console.log(`[Webhook] Subscription ${subscription.id} reactivated`);
+    }
+  }
+
+  // Update period dates if available
+  if (subscription.current_period_start) {
+    business.currentPeriodStart = new Date(subscription.current_period_start * 1000);
+  }
+  if (subscription.current_period_end) {
+    business.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+  }
+
+  await business.save();
+  console.log(`[Webhook] Subscription updated for ${business.externalBusinessId}: ${previousStatus} -> ${business.billingStatus}`);
+  return business._id;
+}
+
+/**
  * Handle subscription deleted
  */
 async function handleSubscriptionDeleted(subscription) {
@@ -155,6 +267,8 @@ async function handleSubscriptionDeleted(subscription) {
   if (!business) return null;
 
   business.billingStatus = 'canceled';
+  business.cancelAtPeriodEnd = false;
+  business.cancelAt = null;
   await business.save();
   return business._id;
 }

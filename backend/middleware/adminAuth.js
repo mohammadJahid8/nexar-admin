@@ -1,38 +1,67 @@
 /**
- * Admin API Key Authentication Middleware
- *
- * Validates the X-Admin-Api-Key header against the ADMIN_API_KEY environment variable.
- * Use this middleware to protect admin-only routes.
+ * Admin JWT Authentication Middleware
+ * 
+ * Validates JWT token from Authorization header.
+ * Attaches adminUser to request object.
  */
 
-const adminAuth = (req, res, next) => {
-  const apiKey = req.headers['x-admin-api-key'];
+import { verifyToken, getCurrentUser } from '../services/auth.service.js';
 
-  if (!apiKey) {
+const adminAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Missing X-Admin-Api-Key header',
+      success: false,
+      message: 'No token provided',
     });
   }
 
-  const expectedKey = process.env.ADMIN_API_KEY;
+  const token = authHeader.split(' ')[1];
+  const decoded = verifyToken(token);
 
-  if (!expectedKey) {
-    console.error('ADMIN_API_KEY environment variable is not set');
-    return res.status(500).json({
-      error: 'Server Configuration Error',
-      message: 'Admin authentication is not properly configured',
+  if (!decoded) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid or expired token',
     });
   }
 
-  if (apiKey !== expectedKey) {
-    return res.status(403).json({
-      error: 'Forbidden',
-      message: 'Invalid admin API key',
+  try {
+    const user = await getCurrentUser(decoded.id);
+    req.adminUser = user;
+    next();
+  } catch (_err) {
+    return res.status(401).json({
+      success: false,
+      message: 'User not found',
     });
   }
+};
 
-  next();
+/**
+ * Role-based access control middleware
+ * @param {string|string[]} allowedRoles - Role(s) allowed to access the route
+ */
+export const requireRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.adminUser) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const roles = allowedRoles.flat();
+    if (!roles.includes(req.adminUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions',
+      });
+    }
+
+    next();
+  };
 };
 
 export default adminAuth;

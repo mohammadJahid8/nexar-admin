@@ -1,8 +1,8 @@
 import httpStatus from 'http-status';
-import { Business, InvoiceRecord, SeatEventLog } from '../models/index.js';
+import { Business, InvoiceRecord, SeatEventLog, UserSeat } from '../models/index.js';
 
-import { listInvoices } from './stripeService.js';
-import { generateApiKey } from '../utils/billingUtils.js';
+import { listInvoices } from './stripe.service.js';
+import { generateApiKey, calculateEstimatedBill } from '../utils/billingUtils.js';
 
 /**
  * Create a new business
@@ -145,7 +145,7 @@ export const resetBusinessApiKey = async (id) => {
 };
 
 /**
- * Get business billing summary
+ * Get business billing summary with estimated bill calculation
  */
 export const getBusinessBilling = async (id) => {
   const business = await Business.findById(id).lean();
@@ -188,6 +188,9 @@ export const getBusinessBilling = async (id) => {
     }
   }
 
+  // Calculate estimated bill using shared utility (async for per-user support)
+  const estimatedBill = await calculateEstimatedBill(business, UserSeat);
+
   return {
     billing: {
       status: business.billingStatus,
@@ -200,7 +203,9 @@ export const getBusinessBilling = async (id) => {
       currentPeriodStart: business.currentPeriodStart,
       currentPeriodEnd: business.currentPeriodEnd,
       billingEnabledAt: business.billingEnabledAt,
+      lastUsageSyncAt: business.lastUsageSyncAt,
     },
+    estimatedBill,
     invoices,
     stripeInvoices,
     seatHistory,
@@ -239,25 +244,15 @@ export const getDashboardStats = async () => {
     }
   }
 
-  // Calculate billing stats
+  // Calculate billing stats using shared utility for consistency
   let currentBilledCents = 0;
   let projectedBillCents = 0;
 
   for (const b of activeBusinesses) {
-    const dailyRate = Math.round(b.seatPriceAudCents / 30);
-    const cumulativeDays = b.cumulativeSeatDays || 0;
-
-    // Current billed = what's already reported
-    currentBilledCents += cumulativeDays * dailyRate;
-
-    // Calculate days remaining in period
-    if (b.currentPeriodEnd) {
-      const periodEnd = new Date(b.currentPeriodEnd);
-      const daysRemaining = Math.max(0, Math.ceil((periodEnd - now) / (1000 * 60 * 60 * 24)));
-      const projectedRemaining = b.currentSeatCount * daysRemaining;
-      projectedBillCents += (cumulativeDays + projectedRemaining) * dailyRate;
-    } else {
-      projectedBillCents += cumulativeDays * dailyRate;
+    const estimatedBill = await calculateEstimatedBill(b, UserSeat);
+    if (estimatedBill) {
+      currentBilledCents += estimatedBill.currentTotalCents;
+      projectedBillCents += estimatedBill.projectedTotalCents;
     }
   }
 

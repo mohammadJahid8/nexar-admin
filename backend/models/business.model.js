@@ -24,6 +24,11 @@ const businessSchema = new mongoose.Schema(
       lowercase: true,
       match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email address'],
     },
+    domain: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
     seatPriceAudCents: {
       type: Number,
       required: [true, 'Seat price is required'],
@@ -63,8 +68,8 @@ const businessSchema = new mongoose.Schema(
     },
     currentSeatCount: {
       type: Number,
-      default: 1,
-      min: [1, 'Seat count must be at least 1 (super admin)'],
+      default: 0,
+      min: [0, 'Seat count cannot be negative'],
     },
     cumulativeSeatDays: {
       type: Number,
@@ -81,6 +86,13 @@ const businessSchema = new mongoose.Schema(
       type: Date,
     },
     lastUsageSyncAt: {
+      type: Date,
+    },
+    cancelAtPeriodEnd: {
+      type: Boolean,
+      default: false,
+    },
+    cancelAt: {
       type: Date,
     },
   },

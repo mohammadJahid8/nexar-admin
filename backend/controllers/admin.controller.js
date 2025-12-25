@@ -1,4 +1,4 @@
-import { BusinessService } from '../services/businessService.js';
+import { BusinessService } from '../services/business.service.js';
 
 import httpStatus from 'http-status';
 import catchAsync from '../utils/catchAsync.js';
