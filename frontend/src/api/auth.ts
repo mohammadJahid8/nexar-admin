@@ -1,6 +1,6 @@
 import { API_BASE_URL as API_URL } from '@/config/api';
 
-// Types
+
 export interface AdminUser {
   id: string;
   email: string;
