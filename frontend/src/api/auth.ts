@@ -55,6 +55,7 @@ const getAuthHeaders = (): HeadersInit => {
  * Login with email and password
  */
 export const login = async (email: string, password: string): Promise<LoginResponse> => {
+  console.log("API_URL", API_URL)
   const res = await fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
