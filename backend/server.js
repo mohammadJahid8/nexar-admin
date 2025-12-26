@@ -7,6 +7,8 @@ import connectDB from './config/db.js';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/index.js';
 import { initDailyBillingJob } from './jobs/dailyBillingJob.js';
+import compression from 'compression';
+
 
 
 // Connect to MongoDB
@@ -26,6 +28,10 @@ app.use((req, res, next) => {
   }
 });
 app.use(express.urlencoded({ extended: true }));
+
+
+// Middleware
+app.use(compression());
 
 // Routes
 app.use('/api', routes);
