@@ -50,20 +50,31 @@ userSeatSchema.statics.getActiveSeats = async function (businessId) {
 
 /**
  * Calculate total seat-days for a business
- * This calculates actual per-user days since activation or last billing
+ * Includes BOTH active users AND deactivated users with unbilled days
  */
 userSeatSchema.statics.calculateSeatDays = async function (businessId, referenceDate = new Date()) {
-  const activeSeats = await this.find({
+  // Find all seats with unbilled days (active OR recently deactivated)
+  const seats = await this.find({
     businessId,
-    deactivatedAt: null,
+    $or: [
+      // Active users
+      { deactivatedAt: null },
+      // Deactivated users with unbilled days (deactivatedAt > lastBilledAt)
+      {
+        deactivatedAt: { $ne: null },
+        $expr: { $gt: ['$deactivatedAt', { $ifNull: ['$lastBilledAt', new Date(0)] }] }
+      }
+    ]
   });
 
   let totalSeatDays = 0;
   const msPerDay = 24 * 60 * 60 * 1000;
 
-  for (const seat of activeSeats) {
+  for (const seat of seats) {
     const startDate = seat.lastBilledAt || seat.activatedAt;
-    const daysElapsed = Math.floor((referenceDate - startDate) / msPerDay);
+    // For deactivated users, bill up to deactivation date; for active, bill up to reference date
+    const endDate = seat.deactivatedAt || referenceDate;
+    const daysElapsed = Math.floor((endDate - startDate) / msPerDay);
     if (daysElapsed > 0) {
       totalSeatDays += daysElapsed;
     }
@@ -98,13 +109,28 @@ userSeatSchema.statics.calculateProjectedSeatDays = async function (businessId, 
 };
 
 /**
- * Mark days as billed for all active seats
+ * Mark days as billed for all seats with unbilled days (active AND deactivated)
  */
 userSeatSchema.statics.markDaysBilled = async function (businessId, billedUpTo = new Date()) {
-  return this.updateMany(
+  // Mark active seats as billed up to billedUpTo
+  await this.updateMany(
     { businessId, deactivatedAt: null },
     { $set: { lastBilledAt: billedUpTo } }
   );
+
+  // Mark deactivated seats as billed up to their deactivation date (not beyond)
+  const deactivatedSeats = await this.find({
+    businessId,
+    deactivatedAt: { $ne: null },
+    $expr: { $gt: ['$deactivatedAt', { $ifNull: ['$lastBilledAt', new Date(0)] }] }
+  });
+
+  for (const seat of deactivatedSeats) {
+    seat.lastBilledAt = seat.deactivatedAt;
+    await seat.save();
+  }
+
+  return { activeUpdated: true, deactivatedUpdated: deactivatedSeats.length };
 };
 
 /**

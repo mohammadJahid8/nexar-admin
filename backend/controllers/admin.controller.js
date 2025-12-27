@@ -3,6 +3,7 @@ import { BusinessService } from '../services/business.service.js';
 import httpStatus from 'http-status';
 import catchAsync from '../utils/catchAsync.js';
 import sendResponse from '../utils/sendResponse.js';
+import { runDailyBilling } from '../jobs/dailyBillingJob.js';
 
 
 /**
@@ -107,7 +108,7 @@ const getDashboardStats = catchAsync(async (req, res) => {
  * Trigger daily billing manually (for testing)
  */
 const triggerDailyBilling = catchAsync(async (req, res) => {
-  const { runDailyBilling } = await import('../services/dailyBillingJob.js');
+
   const result = await runDailyBilling();
 
   sendResponse(res, {
