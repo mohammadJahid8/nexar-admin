@@ -149,7 +149,7 @@ export async function runDailyBilling() {
 export function initDailyBillingJob() {
   // TESTING: Run every 2 minutes for quick testing
   // PRODUCTION: Change to '0 * * * *' (every hour)
-  cron.schedule('*/2 * * * *', async () => {
+  cron.schedule('0 * * * *', async () => {
     console.log('[DailyBilling] Cron job triggered at', new Date().toISOString());
     await runDailyBilling();
   });
