@@ -142,15 +142,18 @@ export async function runDailyBilling() {
 
 /**
  * Initialize the daily billing cron job
- * Runs every hour to check for complete 24-hour periods
- * This ensures billing happens promptly after each user's 24h mark
+ * 
+ * TESTING: Currently set to every 2 minutes for testing
+ * PRODUCTION: Change to '0 * * * *' (every hour) before going live
  */
 export function initDailyBillingJob() {
-  // Run every hour to catch 24-hour completions promptly
-  cron.schedule('0 * * * *', async () => {
-    console.log('[DailyBilling] Hourly cron job triggered at', new Date().toISOString());
+  // TESTING: Run every 2 minutes for quick testing
+  // PRODUCTION: Change to '0 * * * *' (every hour)
+  cron.schedule('*/2 * * * *', async () => {
+    console.log('[DailyBilling] Cron job triggered at', new Date().toISOString());
     await runDailyBilling();
   });
 
-  console.log('[DailyBilling] Cron job scheduled to run every hour');
+  console.log('[DailyBilling] Cron job scheduled to run every 2 minutes (TESTING MODE)');
 }
+
