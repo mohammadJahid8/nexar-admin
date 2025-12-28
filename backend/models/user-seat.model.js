@@ -49,21 +49,15 @@ userSeatSchema.statics.getActiveSeats = async function (businessId) {
 };
 
 /**
- * Calculate total seat-days for a business
- * Includes BOTH active users AND deactivated users with unbilled days
+ * Calculate total UNBILLED seat-days for a business
+ * Bills for COMPLETE 24-hour periods since each user's activation
  */
 userSeatSchema.statics.calculateSeatDays = async function (businessId, referenceDate = new Date()) {
-  // Find all seats with unbilled days (active OR recently deactivated)
   const seats = await this.find({
     businessId,
     $or: [
-      // Active users
       { deactivatedAt: null },
-      // Deactivated users with unbilled days (deactivatedAt > lastBilledAt)
-      {
-        deactivatedAt: { $ne: null },
-        $expr: { $gt: ['$deactivatedAt', { $ifNull: ['$lastBilledAt', new Date(0)] }] }
-      }
+      { deactivatedAt: { $ne: null } }
     ]
   });
 
@@ -71,12 +65,17 @@ userSeatSchema.statics.calculateSeatDays = async function (businessId, reference
   const msPerDay = 24 * 60 * 60 * 1000;
 
   for (const seat of seats) {
-    const startDate = seat.lastBilledAt || seat.activatedAt;
-    // For deactivated users, bill up to deactivation date; for active, bill up to reference date
     const endDate = seat.deactivatedAt || referenceDate;
-    const daysElapsed = Math.floor((endDate - startDate) / msPerDay);
-    if (daysElapsed > 0) {
-      totalSeatDays += daysElapsed;
+
+    // Calculate complete 24-hour days since activation
+    const totalDaysSinceActivation = Math.floor((endDate - seat.activatedAt) / msPerDay);
+
+    // Subtract already billed days
+    const alreadyBilled = seat.cumulativeDays || 0;
+    const unbilledDays = totalDaysSinceActivation - alreadyBilled;
+
+    if (unbilledDays > 0) {
+      totalSeatDays += unbilledDays;
     }
   }
 
@@ -85,6 +84,7 @@ userSeatSchema.statics.calculateSeatDays = async function (businessId, reference
 
 /**
  * Calculate projected seat-days until period end
+ * Uses COMPLETE 24-hour periods from each user's activation time
  */
 userSeatSchema.statics.calculateProjectedSeatDays = async function (businessId, periodEnd) {
   const activeSeats = await this.find({
@@ -97,9 +97,8 @@ userSeatSchema.statics.calculateProjectedSeatDays = async function (businessId, 
   const periodEndDate = new Date(periodEnd);
 
   for (const seat of activeSeats) {
-    // Calculate from lastBilledAt (or activatedAt) to periodEnd
-    const startDate = seat.lastBilledAt || seat.activatedAt;
-    const daysUntilEnd = Math.floor((periodEndDate - startDate) / msPerDay);
+    // Calculate complete 24-hour days from activation to period end
+    const daysUntilEnd = Math.floor((periodEndDate - new Date(seat.activatedAt)) / msPerDay);
     if (daysUntilEnd > 0) {
       totalProjectedDays += daysUntilEnd;
     }
@@ -109,28 +108,44 @@ userSeatSchema.statics.calculateProjectedSeatDays = async function (businessId, 
 };
 
 /**
- * Mark days as billed for all seats with unbilled days (active AND deactivated)
+ * Mark days as billed for all seats with unbilled days
+ * Updates both lastBilledAt AND cumulativeDays for consistency
  */
 userSeatSchema.statics.markDaysBilled = async function (businessId, billedUpTo = new Date()) {
-  // Mark active seats as billed up to billedUpTo
-  await this.updateMany(
-    { businessId, deactivatedAt: null },
-    { $set: { lastBilledAt: billedUpTo } }
-  );
+  const msPerDay = 24 * 60 * 60 * 1000;
 
-  // Mark deactivated seats as billed up to their deactivation date (not beyond)
-  const deactivatedSeats = await this.find({
+  // Get all seats and update cumulativeDays
+  const allSeats = await this.find({
     businessId,
-    deactivatedAt: { $ne: null },
-    $expr: { $gt: ['$deactivatedAt', { $ifNull: ['$lastBilledAt', new Date(0)] }] }
+    $or: [
+      { deactivatedAt: null },
+      { deactivatedAt: { $ne: null } }
+    ]
   });
 
-  for (const seat of deactivatedSeats) {
-    seat.lastBilledAt = seat.deactivatedAt;
-    await seat.save();
+  let activeUpdated = 0;
+  let deactivatedUpdated = 0;
+
+  for (const seat of allSeats) {
+    const endDate = seat.deactivatedAt || billedUpTo;
+    const totalDaysSinceActivation = Math.floor((endDate - seat.activatedAt) / msPerDay);
+    const currentCumulative = seat.cumulativeDays || 0;
+
+    // Only update if there are new days to bill
+    if (totalDaysSinceActivation > currentCumulative) {
+      seat.cumulativeDays = totalDaysSinceActivation;
+      seat.lastBilledAt = endDate;
+      await seat.save();
+
+      if (seat.deactivatedAt) {
+        deactivatedUpdated++;
+      } else {
+        activeUpdated++;
+      }
+    }
   }
 
-  return { activeUpdated: true, deactivatedUpdated: deactivatedSeats.length };
+  return { activeUpdated, deactivatedUpdated };
 };
 
 /**

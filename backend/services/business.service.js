@@ -67,8 +67,6 @@ export const listBusinesses = async (query = {}) => {
     Business.countDocuments(filter),
   ]);
 
-  // console.log('🚀 ~ listBusinesses ~ businesses:', businesses);
-
   return {
     businesses,
     pagination: {

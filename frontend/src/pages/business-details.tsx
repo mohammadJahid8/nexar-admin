@@ -83,7 +83,6 @@ export function BusinessDetailPage() {
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [billing, setBilling] = useState<BillingDetailData | null>(null);
-  console.log('🚀 ~ BusinessDetailPage ~ billing:', billing);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -485,19 +484,6 @@ export function BusinessDetailPage() {
                         Math.round(business.seatPriceAudCents / 30)
                     )}
               </p>
-              {/* <p className='text-xs text-muted-foreground mt-1'>
-                {billing?.estimatedBill ? (
-                  <>
-                    {billing.estimatedBill.reportedSeatDays} reported +{' '}
-                    {billing.estimatedBill.unreportedSeatDays} unreported
-                    seat-days
-                  </>
-                ) : (
-                  `${
-                    billing?.billing.cumulativeSeatDays || 0
-                  } seat-days reported`
-                )}
-              </p> */}
             </div>
             <div className='rounded-lg bg-muted/50 p-4'>
               <div className='flex items-center gap-2 text-muted-foreground text-sm'>
@@ -509,11 +495,6 @@ export function BusinessDetailPage() {
                   ? `$${billing.estimatedBill.projectedTotalAud}`
                   : formatPrice(0)}
               </p>
-              {/* <p className='text-xs text-muted-foreground mt-1'>
-                {billing?.estimatedBill
-                  ? `${billing.estimatedBill.projectedTotalSeatDays} seat-days (${billing.estimatedBill.currentSeatCount} users, ${billing.estimatedBill.daysRemaining} days left)`
-                  : 'Est. at end of period'}
-              </p> */}
             </div>
           </div>
 

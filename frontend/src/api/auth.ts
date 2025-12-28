@@ -1,6 +1,5 @@
 import { API_BASE_URL as API_URL } from '@/config/api';
 
-
 export interface AdminUser {
   id: string;
   email: string;
@@ -29,7 +28,7 @@ const getToken = (): string | null => {
   return localStorage.getItem('admin_token');
 };
 
-// Set auth token in storage  
+// Set auth token in storage
 export const setToken = (token: string): void => {
   localStorage.setItem('admin_token', token);
 };
@@ -54,8 +53,10 @@ const getAuthHeaders = (): HeadersInit => {
 /**
  * Login with email and password
  */
-export const login = async (email: string, password: string): Promise<LoginResponse> => {
-  console.log("API_URL", API_URL)
+export const login = async (
+  email: string,
+  password: string
+): Promise<LoginResponse> => {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -110,7 +111,9 @@ export const getUsers = async (): Promise<AdminUser[]> => {
 /**
  * Create new admin user
  */
-export const createUser = async (userData: CreateUserRequest): Promise<AdminUser> => {
+export const createUser = async (
+  userData: CreateUserRequest
+): Promise<AdminUser> => {
   const res = await fetch(`${API_URL}/admin/users`, {
     method: 'POST',
     headers: getAuthHeaders(),

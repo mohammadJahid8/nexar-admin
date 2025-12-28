@@ -6,24 +6,24 @@ import { reportSeatDays } from '../services/stripe.service.js';
 
 /**
  * Process daily billing for a single business
- * Handles BOTH active users AND recently deactivated users with unbilled days
+ * Bills for COMPLETE 24-hour periods since each user's activation time
+ * 
+ * Example: User activated Dec 27 at 7:21 PM
+ * - Dec 28 at 7:20 PM → 0 complete days (23h 59m)
+ * - Dec 28 at 7:21 PM → 1 complete day (24h 0m)
+ * - Dec 29 at 7:21 PM → 2 complete days (48h 0m)
  */
 async function processDailyBilling(business) {
   try {
     const now = new Date();
     const msPerDay = 24 * 60 * 60 * 1000;
 
-    // Get ALL users with unbilled days (active OR deactivated)
+    // Get ALL users (active AND deactivated)
     const allSeats = await UserSeat.find({
       businessId: business._id,
       $or: [
-        // Active users
         { deactivatedAt: null },
-        // Deactivated users who still have unbilled days
-        {
-          deactivatedAt: { $ne: null },
-          $expr: { $gt: ['$deactivatedAt', '$lastBilledAt'] }
-        }
+        { deactivatedAt: { $ne: null } }
       ]
     });
 
@@ -32,19 +32,39 @@ async function processDailyBilling(business) {
       return { skipped: true, reason: 'No users to bill' };
     }
 
-    // Calculate per-user seat-days
     let seatDaysToReport = 0;
     let activeCount = 0;
     let deactivatedCount = 0;
+    const billedUsers = [];
 
     for (const seat of allSeats) {
-      const startDate = seat.lastBilledAt || seat.activatedAt;
-      // For deactivated users, bill up to deactivation date; for active, bill up to now
+      // Determine the end date for billing
       const endDate = seat.deactivatedAt || now;
-      const daysElapsed = Math.floor((endDate - startDate) / msPerDay);
 
-      if (daysElapsed > 0) {
-        seatDaysToReport += daysElapsed;
+      // Calculate COMPLETE 24-hour days since activation
+      const totalDaysSinceActivation = Math.floor((endDate - seat.activatedAt) / msPerDay);
+
+      // How many days have we already billed?
+      const alreadyBilled = seat.cumulativeDays || 0;
+
+      // Days to bill now = new complete days since last billing
+      const daysToBill = totalDaysSinceActivation - alreadyBilled;
+
+      if (daysToBill > 0) {
+        seatDaysToReport += daysToBill;
+
+        // Update the seat's cumulative billed days
+        seat.cumulativeDays = totalDaysSinceActivation;
+        seat.lastBilledAt = now;
+        await seat.save();
+
+        billedUsers.push({
+          userId: seat.externalUserId,
+          daysBilled: daysToBill,
+          totalDays: totalDaysSinceActivation,
+          activatedAt: seat.activatedAt
+        });
+
         if (seat.deactivatedAt) {
           deactivatedCount++;
         } else {
@@ -54,21 +74,12 @@ async function processDailyBilling(business) {
     }
 
     if (seatDaysToReport === 0) {
-      console.log(`[DailyBilling] ${business.externalBusinessId}: No days elapsed for any user, skipping`);
-      return { skipped: true, reason: 'No days elapsed' };
+      console.log(`[DailyBilling] ${business.externalBusinessId}: No complete days to bill yet, skipping`);
+      return { skipped: true, reason: 'No complete 24-hour periods yet' };
     }
 
     // Report to Stripe
     await reportSeatDays(business.stripeSubscriptionItemId, seatDaysToReport);
-
-    // Mark all seats as billed up to their appropriate end date
-    for (const seat of allSeats) {
-      const endDate = seat.deactivatedAt || now;
-      if (!seat.lastBilledAt || endDate > seat.lastBilledAt) {
-        seat.lastBilledAt = endDate;
-        await seat.save();
-      }
-    }
 
     // Update business cumulative
     business.cumulativeSeatDays = (business.cumulativeSeatDays || 0) + seatDaysToReport;
@@ -76,12 +87,14 @@ async function processDailyBilling(business) {
     await business.save();
 
     console.log(`[DailyBilling] ${business.externalBusinessId}: Reported ${seatDaysToReport} seat-days (${activeCount} active, ${deactivatedCount} deactivated users)`);
+    console.log(`[DailyBilling] Billed users:`, JSON.stringify(billedUsers, null, 2));
 
     return {
       success: true,
       seatDaysReported: seatDaysToReport,
       activeUsers: activeCount,
       deactivatedUsers: deactivatedCount,
+      billedUsers
     };
   } catch (err) {
     console.error(`[DailyBilling] ${business.externalBusinessId}: Error -`, err.message);
@@ -129,14 +142,15 @@ export async function runDailyBilling() {
 
 /**
  * Initialize the daily billing cron job
- * Runs every day at midnight (00:00)
+ * Runs every hour to check for complete 24-hour periods
+ * This ensures billing happens promptly after each user's 24h mark
  */
 export function initDailyBillingJob() {
-  // Run at midnight UTC every day
-  cron.schedule('0 0 * * *', async () => {
-    console.log('[DailyBilling] Cron job triggered at', new Date().toISOString());
+  // Run every hour to catch 24-hour completions promptly
+  cron.schedule('0 * * * *', async () => {
+    console.log('[DailyBilling] Hourly cron job triggered at', new Date().toISOString());
     await runDailyBilling();
   });
 
-  console.log('[DailyBilling] Cron job scheduled to run at midnight UTC daily');
+  console.log('[DailyBilling] Cron job scheduled to run every hour');
 }

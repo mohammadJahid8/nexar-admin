@@ -74,7 +74,7 @@ export const isValidRedirectUrl = (url) => {
 };
 
 /**
- * Calculate proration based on days
+ * Calculate proration based on COMPLETE days
  * @param {number} dailyAmount - Amount per day in cents
  * @param {Date} startDate - Start date
  * @param {Date} endDate - End date
@@ -82,7 +82,7 @@ export const isValidRedirectUrl = (url) => {
  */
 export const calculateProration = (dailyAmount, startDate, endDate) => {
   const msPerDay = 24 * 60 * 60 * 1000;
-  const days = Math.ceil((endDate - startDate) / msPerDay);
+  const days = Math.floor((endDate - startDate) / msPerDay);
   return Math.round(dailyAmount * days);
 };
 
@@ -108,7 +108,7 @@ export const mapSubscriptionStatus = (stripeStatus) => {
 
 /**
  * Calculate estimated bill for a business using per-user billing
- * Requires UserSeat records for accurate per-user billing.
+ * Uses COMPLETE 24-hour periods from each user's activation time
  * 
  * @param {Object} business - Business document (lean object)
  * @param {Object} UserSeatModel - UserSeat mongoose model (required)
@@ -132,40 +132,37 @@ export const calculateEstimatedBill = async (business, UserSeatModel) => {
   // Get active seats for per-user billing
   const activeSeats = await UserSeatModel.getActiveSeats(business._id);
 
-  let currentUnreportedDays = 0;
+  let currentUnbilledDays = 0;
   let projectedTotalDays = 0;
   const perUserBreakdown = [];
 
   for (const seat of activeSeats) {
-    const startDate = new Date(seat.lastBilledAt || seat.activatedAt);
+    // Calculate complete 24-hour days from activation
+    const totalDaysSinceActivation = Math.floor((now - new Date(seat.activatedAt)) / msPerDay);
+    const alreadyBilled = seat.cumulativeDays || 0;
+    const unbilledDays = Math.max(0, totalDaysSinceActivation - alreadyBilled);
 
-    // Days since last billing (unreported)
-    const daysSinceStart = Math.floor((now - startDate) / msPerDay);
-    currentUnreportedDays += Math.max(0, daysSinceStart);
+    currentUnbilledDays += unbilledDays;
 
-    // Days until period end (projected)
-    const daysUntilEnd = Math.floor((periodEnd - startDate) / msPerDay);
-    projectedTotalDays += Math.max(0, daysUntilEnd);
+    // Calculate projected days until period end (from activation)
+    const daysUntilEndFromActivation = Math.floor((periodEnd - new Date(seat.activatedAt)) / msPerDay);
+    projectedTotalDays += Math.max(0, daysUntilEndFromActivation);
 
     perUserBreakdown.push({
       externalUserId: seat.externalUserId,
       activatedAt: seat.activatedAt,
-      lastBilledAt: seat.lastBilledAt,
-      daysSinceStart: Math.max(0, daysSinceStart),
-      daysUntilPeriodEnd: Math.max(0, daysUntilEnd),
+      cumulativeDays: alreadyBilled,
+      unbilledDays,
+      projectedTotalDays: Math.max(0, daysUntilEndFromActivation),
     });
   }
 
   const reportedSeatDays = business.cumulativeSeatDays || 0;
   const reportedAmountCents = reportedSeatDays * dailyRate;
 
-  const unreportedSeatDays = currentUnreportedDays;
-  const projectedTotalSeatDays = reportedSeatDays + projectedTotalDays;
-
-  const unreportedAmountCents = unreportedSeatDays * dailyRate;
-  const currentTotalSeatDays = reportedSeatDays + unreportedSeatDays;
+  const currentTotalSeatDays = reportedSeatDays + currentUnbilledDays;
   const currentTotalCents = currentTotalSeatDays * dailyRate;
-  const projectedTotalCents = projectedTotalSeatDays * dailyRate;
+  const projectedTotalCents = projectedTotalDays * dailyRate;
 
   return {
     currentSeatCount: activeSeats.length,
@@ -181,15 +178,15 @@ export const calculateEstimatedBill = async (business, UserSeatModel) => {
     reportedAmountCents,
     reportedAmountAud: (reportedAmountCents / 100).toFixed(2),
 
-    unreportedSeatDays,
-    unreportedAmountCents,
-    unreportedAmountAud: (unreportedAmountCents / 100).toFixed(2),
+    unreportedSeatDays: currentUnbilledDays,
+    unreportedAmountCents: currentUnbilledDays * dailyRate,
+    unreportedAmountAud: ((currentUnbilledDays * dailyRate) / 100).toFixed(2),
 
     currentTotalSeatDays,
     currentTotalCents,
     currentTotalAud: (currentTotalCents / 100).toFixed(2),
 
-    projectedTotalSeatDays,
+    projectedTotalSeatDays: projectedTotalDays,
     projectedTotalCents,
     projectedTotalAud: (projectedTotalCents / 100).toFixed(2),
 

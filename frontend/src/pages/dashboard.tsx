@@ -24,7 +24,6 @@ export function DashboardPage() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
     null
   );
-  console.log('🚀 ~ DashboardPage ~ dashboardStats:', dashboardStats);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
