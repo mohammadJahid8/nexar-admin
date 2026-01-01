@@ -137,23 +137,30 @@ export const calculateEstimatedBill = async (business, UserSeatModel) => {
   const perUserBreakdown = [];
 
   for (const seat of activeSeats) {
-    // Calculate complete 24-hour days from activation
-    const totalDaysSinceActivation = Math.floor((now - new Date(seat.activatedAt)) / msPerDay);
+    const activatedAt = new Date(seat.activatedAt);
+
+    // Use the later of activation time or period start as the effective start
+    // This ensures we only bill for days within the current period
+    const effectiveStart = activatedAt > periodStart ? activatedAt : periodStart;
+
+    // Calculate complete 24-hour days from effective start to now
+    const totalDaysSinceEffectiveStart = Math.floor((now - effectiveStart) / msPerDay);
     const alreadyBilled = seat.cumulativeDays || 0;
-    const unbilledDays = Math.max(0, totalDaysSinceActivation - alreadyBilled);
+    const unbilledDays = Math.max(0, totalDaysSinceEffectiveStart - alreadyBilled);
 
     currentUnbilledDays += unbilledDays;
 
-    // Calculate projected days until period end (from activation)
-    const daysUntilEndFromActivation = Math.floor((periodEnd - new Date(seat.activatedAt)) / msPerDay);
-    projectedTotalDays += Math.max(0, daysUntilEndFromActivation);
+    // Calculate projected days until period end (from effective start, not activation)
+    const daysUntilEndFromEffectiveStart = Math.floor((periodEnd - effectiveStart) / msPerDay);
+    projectedTotalDays += Math.max(0, daysUntilEndFromEffectiveStart);
 
     perUserBreakdown.push({
       externalUserId: seat.externalUserId,
       activatedAt: seat.activatedAt,
+      effectiveStartForPeriod: effectiveStart.toISOString(),
       cumulativeDays: alreadyBilled,
       unbilledDays,
-      projectedTotalDays: Math.max(0, daysUntilEndFromActivation),
+      projectedTotalDays: Math.max(0, daysUntilEndFromEffectiveStart),
     });
   }
 

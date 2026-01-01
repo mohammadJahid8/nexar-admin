@@ -1,7 +1,7 @@
 import httpStatus from 'http-status';
 import { Business, InvoiceRecord, SeatEventLog, UserSeat } from '../models/index.js';
 
-import { listInvoices } from './stripe.service.js';
+import { cancelSubscription, listInvoices, stripe } from './stripe.service.js';
 import { generateApiKey, calculateEstimatedBill } from '../utils/billingUtils.js';
 
 /**
@@ -171,16 +171,18 @@ export const getBusinessBilling = async (id) => {
   if (business.stripeCustomerId) {
     try {
       const result = await listInvoices(business.stripeCustomerId, 5);
-      stripeInvoices = result.data.map((inv) => ({
-        id: inv.id,
-        status: inv.status,
-        amountDue: inv.amount_due,
-        amountPaid: inv.amount_paid,
-        currency: inv.currency,
-        hostedInvoiceUrl: inv.hosted_invoice_url,
-        invoicePdf: inv.invoice_pdf,
-        created: new Date(inv.created * 1000),
-      }));
+      // Filter out draft invoices - only show actual invoices (paid, open, uncollectible)
+      stripeInvoices = result.data
+        .map((inv) => ({
+          id: inv.id,
+          status: inv.status,
+          amountDue: inv.amount_due,
+          amountPaid: inv.amount_paid,
+          currency: inv.currency,
+          hostedInvoiceUrl: inv.hosted_invoice_url,
+          invoicePdf: inv.invoice_pdf,
+          created: new Date(inv.created * 1000),
+        }));
     } catch (stripeError) {
       console.error('Failed to fetch Stripe invoices:', stripeError);
     }
@@ -226,14 +228,18 @@ export const getDashboardStats = async () => {
 
   // Fetch paid invoices from all active customers
   let monthlyPaidRevenue = 0;
+  let totalRevenue = 0;
 
   for (const business of activeBusinesses) {
     if (business.stripeCustomerId) {
       try {
-        const invoices = await listInvoices(business.stripeCustomerId, 10);
+        const invoices = await listInvoices(business.stripeCustomerId, 100);
         for (const inv of invoices.data) {
-          if (inv.status === 'paid' && inv.created >= startOfMonthTimestamp) {
-            monthlyPaidRevenue += inv.amount_paid;
+          if (inv.status === 'paid') {
+            totalRevenue += inv.amount_paid; // All-time
+            if (inv.created >= startOfMonthTimestamp) {
+              monthlyPaidRevenue += inv.amount_paid; // This month
+            }
           }
         }
       } catch (err) {
@@ -262,13 +268,14 @@ export const getDashboardStats = async () => {
     totalSeats: businesses.reduce((sum, b) => sum + (b.currentSeatCount || 0), 0),
     currentBilledCents,
     projectedBillCents,
-    monthlyPaidRevenueCents: monthlyPaidRevenue
+    monthlyPaidRevenueCents: monthlyPaidRevenue,
+    totalRevenueCents: totalRevenue
   };
 };
 
 /**
  * Delete a business
- * Note: Will not delete if business has active subscription
+ * Automatically cancels Stripe subscription and deletes products/prices, then deletes all data
  */
 export const deleteBusiness = async (id) => {
   const business = await Business.findById(id);
@@ -279,14 +286,42 @@ export const deleteBusiness = async (id) => {
     throw error;
   }
 
-  // Prevent deletion of businesses with active subscriptions
-  if (business.billingStatus === 'active' || business.billingStatus === 'past_due') {
-    const error = new Error('Cannot delete business with active or past due subscription. Please cancel the subscription first.');
-    error.statusCode = httpStatus.CONFLICT;
-    throw error;
+  // Cancel Stripe subscription if it exists
+  if (business.stripeSubscriptionId) {
+    try {
+      await cancelSubscription(business.stripeSubscriptionId);
+      console.log(`Canceled Stripe subscription: ${business.stripeSubscriptionId}`);
+    } catch (stripeErr) {
+      console.error('Failed to cancel Stripe subscription:', stripeErr.message);
+    }
+  }
+
+  // Delete Stripe products and prices for this business
+  if (business._id) {
+    try {
+
+
+      // Search for products with this business ID
+      const products = await stripe.instance.products.search({
+        query: `metadata['nexer_business_id']:'${business._id.toString()}'`
+      });
+
+      // Archive each product (which also archives all associated prices)
+      for (const product of products.data) {
+        try {
+          await stripe.instance.products.update(product.id, { active: false });
+          console.log(`Archived Stripe product: ${product.id}`);
+        } catch (productErr) {
+          console.error(`Failed to archive product ${product.id}:`, productErr.message);
+        }
+      }
+    } catch (stripeErr) {
+      console.error('Failed to clean up Stripe products:', stripeErr.message);
+    }
   }
 
   // Delete related records
+  await UserSeat.deleteMany({ businessId: id });
   await SeatEventLog.deleteMany({ businessId: id });
   await InvoiceRecord.deleteMany({ businessId: id });
 
@@ -295,6 +330,7 @@ export const deleteBusiness = async (id) => {
 
   return { deleted: true, businessId: id };
 };
+
 
 export const BusinessService = {
   createBusiness,

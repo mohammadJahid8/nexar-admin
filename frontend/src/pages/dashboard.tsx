@@ -61,7 +61,7 @@ export function DashboardPage() {
       businesses.reduce((sum, b) => sum + b.currentSeatCount, 0),
     currentBilled: dashboardStats?.currentBilledCents || 0,
     projectedBill: dashboardStats?.projectedBillCents || 0,
-    monthlyPaidRevenue: dashboardStats?.monthlyPaidRevenueCents || 0,
+    totalRevenue: dashboardStats?.totalRevenueCents || 0,
   };
 
   if (loading) {
@@ -154,9 +154,9 @@ export function DashboardPage() {
               <DollarSign className='h-5 w-5 text-green-600 dark:text-green-400' />
             </div>
             <div>
-              <p className='text-sm text-muted-foreground'>Monthly Revenue</p>
+              <p className='text-sm text-muted-foreground'>Total Revenue</p>
               <p className='text-2xl font-bold'>
-                {formatPrice(stats.monthlyPaidRevenue)}
+                {formatPrice(stats.totalRevenue)}
               </p>
               <p className='text-xs text-muted-foreground'>Paid this month</p>
             </div>

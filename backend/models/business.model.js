@@ -47,7 +47,7 @@ const businessSchema = new mongoose.Schema(
     apiKey: {
       type: String,
       required: [true, 'API key is required'],
-      select: false, // Don't return by default in queries
+      // select: false, // Don't return by default in queries
     },
     billingStatus: {
       type: String,

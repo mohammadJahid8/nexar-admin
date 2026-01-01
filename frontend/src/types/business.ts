@@ -5,6 +5,7 @@ export interface Business {
   contactEmail?: string;
   seatPriceAudCents: number;
   currency: string;
+  apiKey: string;
   billingStatus: BillingStatus;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;

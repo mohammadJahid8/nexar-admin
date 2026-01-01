@@ -1,6 +1,6 @@
 import httpStatus from 'http-status';
 import { Business, StripeEvent, InvoiceRecord, SeatEventLog } from '../models/index.js';
-import { constructWebhookEvent } from './stripe.service.js';
+import { constructWebhookEvent, getSubscription } from './stripe.service.js';
 import { activateBilling } from './billing.service.js';
 
 /**
@@ -40,6 +40,7 @@ export const handleWebhook = async (payload, signature) => {
         break;
 
       case 'invoice.paid':
+      case 'invoice.payment_succeeded':
         businessId = await handleInvoicePaid(event.data.object);
         break;
 
@@ -164,12 +165,29 @@ async function handleInvoicePaid(invoice) {
   // Reset cumulative tracking for new billing period
   business.cumulativeSeatDays = 0;
 
-  // Update period dates from invoice if available
-  if (invoice.period_start) {
-    business.currentPeriodStart = new Date(invoice.period_start * 1000);
-  }
-  if (invoice.period_end) {
-    business.currentPeriodEnd = new Date(invoice.period_end * 1000);
+  // Fetch the current subscription to get the CURRENT period dates
+  // (invoice contains the PAID period dates, not the current period)
+  if (business.stripeSubscriptionId) {
+    try {
+
+      const subscription = await getSubscription(business.stripeSubscriptionId);
+
+      if (subscription.current_period_start) {
+        business.currentPeriodStart = new Date(subscription.current_period_start * 1000);
+      }
+      if (subscription.current_period_end) {
+        business.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+      }
+    } catch (err) {
+      console.error('Failed to fetch subscription period:', err.message);
+      // Fallback to invoice period if subscription fetch fails
+      if (invoice.period_start) {
+        business.currentPeriodStart = new Date(invoice.period_start * 1000);
+      }
+      if (invoice.period_end) {
+        business.currentPeriodEnd = new Date(invoice.period_end * 1000);
+      }
+    }
   }
 
   // Reset the usage sync timestamp to start of new period

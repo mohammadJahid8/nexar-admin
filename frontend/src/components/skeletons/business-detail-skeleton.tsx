@@ -2,7 +2,7 @@ import { Skeleton } from '../ui/skeleton';
 
 export function BusinessDetailSkeleton() {
   return (
-    <div className='max-w-4xl mx-auto space-y-6'>
+    <div className='space-y-6'>
       {/* Back button skeleton */}
       <Skeleton className='h-6 w-32' />
 

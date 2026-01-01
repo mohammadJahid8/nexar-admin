@@ -14,7 +14,7 @@ function getStripe() {
   return stripeInstance;
 }
 
-const stripe = { get instance() { return getStripe(); } };
+export const stripe = { get instance() { return getStripe(); } };
 
 /**
  * Get or create metered price
@@ -114,6 +114,11 @@ export const createMeteredSubscription = async ({ customerId, businessId, extern
     });
   }
 
+  // Set billing cycle anchor to the 1st of the NEXT month
+  // For metered subscriptions, this means:
+  // - Usage starts tracking NOW (subscription creation time)
+  // - First invoice generated on anchor date (next month's 1st)
+  // - First invoice bills for usage from NOW until anchor date
   const now = new Date();
   const nextFirst = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const billingCycleAnchor = Math.floor(nextFirst.getTime() / 1000);
@@ -224,6 +229,18 @@ export const createBillingPortal = async (customerId, returnUrl) => {
     return_url: returnUrl
   });
 };
+export const cancelSubscription = async (subscriptionId) => {
+  if (!subscriptionId) return null;
+
+  try {
+    return await stripe.instance.subscriptions.cancel(subscriptionId);
+  } catch (err) {
+    console.error('Failed to cancel subscription:', err.message);
+    throw err;
+  }
+};
+
+
 
 
 
