@@ -2,16 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { businessApi } from '../api';
 import type { Business, BillingDetailData } from '../types';
-import { Button } from '../components/ui/button';
+
 import { BusinessDetailSkeleton } from '../components/skeletons';
-import {
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  XCircle,
-  RefreshCw,
-  Trash2,
-} from 'lucide-react';
+import { CheckCircle2, AlertCircle, Clock, XCircle } from 'lucide-react';
 import {
   BusinessHeader,
   BusinessDetailsCard,
