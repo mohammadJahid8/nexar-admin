@@ -198,7 +198,8 @@ export const getBillingStatus = async (business) => {
     seatPriceAudCents: freshBusiness.seatPriceAudCents,
     currentPeriodStart: freshBusiness.currentPeriodStart,
     currentPeriodEnd: freshBusiness.currentPeriodEnd,
-    cumulativeSeatDays: freshBusiness.cumulativeSeatDays || 0
+    cumulativeSeatDays: freshBusiness.cumulativeSeatDays || 0,
+    domain: freshBusiness.domain,
   };
 };
 
