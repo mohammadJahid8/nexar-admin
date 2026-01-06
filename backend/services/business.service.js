@@ -98,7 +98,7 @@ export const getBusinessById = async (id) => {
  * Update a business
  */
 export const updateBusiness = async (id, data) => {
-  const { name, contactEmail, seatPriceAudCents } = data;
+  const { name, contactEmail, seatPriceAudCents, domain } = data;
 
   const business = await Business.findById(id);
 
@@ -119,6 +119,8 @@ export const updateBusiness = async (id, data) => {
     }
     business.seatPriceAudCents = seatPriceAudCents;
   }
+
+  if (domain !== undefined) business.domain = domain;
 
   await business.save();
   return business.toJSON();
