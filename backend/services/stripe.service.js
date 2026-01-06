@@ -115,10 +115,6 @@ export const createMeteredSubscription = async ({ customerId, businessId, extern
   }
 
   // Set billing cycle anchor to the 1st of the NEXT month
-  // For metered subscriptions, this means:
-  // - Usage starts tracking NOW (subscription creation time)
-  // - First invoice generated on anchor date (next month's 1st)
-  // - First invoice bills for usage from NOW until anchor date
   const now = new Date();
   const nextFirst = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   const billingCycleAnchor = Math.floor(nextFirst.getTime() / 1000);
@@ -140,9 +136,6 @@ export const createMeteredSubscription = async ({ customerId, businessId, extern
 
 /**
  * Report seat-days usage using rawRequest with retry logic
- * @param {string} subscriptionItemId - Stripe subscription item ID
- * @param {number} seatDays - Number of seat-days to report
- * @param {number} maxRetries - Maximum number of retry attempts
  */
 export const reportSeatDays = async (subscriptionItemId, seatDays, maxRetries = 3) => {
   console.log('Reporting usage:', seatDays, 'seat-days to', subscriptionItemId);
@@ -162,7 +155,6 @@ export const reportSeatDays = async (subscriptionItemId, seatDays, maxRetries = 
     } catch (err) {
       lastError = err;
 
-      // Don't retry on client errors (4xx) except rate limits (429)
       const isRateLimit = err.statusCode === 429;
       const isServerError = err.statusCode >= 500;
       const isNetworkError = !err.statusCode;
@@ -173,7 +165,6 @@ export const reportSeatDays = async (subscriptionItemId, seatDays, maxRetries = 
       }
 
       if (attempt < maxRetries) {
-        // Exponential backoff: 1s, 2s, 4s
         const delay = Math.pow(2, attempt - 1) * 1000;
         console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -205,18 +196,19 @@ export const listInvoices = async (customerId, limit = 10) => {
 };
 
 /**
- * Get upcoming invoice (preview)
+ * Get upcoming invoice using raw API call
  */
 export const getUpcomingInvoice = async (customerId) => {
   try {
-    return await stripe.instance.invoices.retrieveUpcoming({
-      customer: customerId
-    });
+    const response = await stripe.instance.rawRequest('GET', `/v1/invoices/upcoming?customer=${customerId}`);
+    console.log('🚀 ~ getUpcomingInvoice ~ response:', response);
+    return response;
   } catch (err) {
     if (err.code === 'invoice_upcoming_none') {
       return null;
     }
-    throw err;
+    console.error('Failed to fetch upcoming invoice:', err.message);
+    return null;
   }
 };
 
@@ -229,6 +221,7 @@ export const createBillingPortal = async (customerId, returnUrl) => {
     return_url: returnUrl
   });
 };
+
 export const cancelSubscription = async (subscriptionId) => {
   if (!subscriptionId) return null;
 
@@ -240,9 +233,67 @@ export const cancelSubscription = async (subscriptionId) => {
   }
 };
 
+/**
+ * Update subscription to use a new price
+ */
+export const updateSubscriptionPrice = async (subscriptionId, subscriptionItemId, businessId, newSeatPriceAudCents) => {
+  console.log('Updating subscription price for:', businessId, 'to', newSeatPriceAudCents, 'cents');
 
+  const newDailyRate = Math.round(newSeatPriceAudCents / 30);
 
+  const oldPrices = await stripe.instance.prices.search({
+    query: `metadata['nexer_business_id']:'${businessId}' AND active:'true'`
+  });
 
+  let productId;
+  if (oldPrices.data.length > 0) {
+    productId = oldPrices.data[0].product;
+  } else {
+    const product = await stripe.instance.products.create({
+      name: 'CRM Seat (Daily)',
+      metadata: { nexer_business_id: businessId }
+    });
+    productId = product.id;
+  }
+
+  const newPrice = await stripe.instance.prices.create({
+    product: productId,
+    currency: 'aud',
+    unit_amount: newDailyRate,
+    recurring: {
+      interval: 'month',
+      usage_type: 'metered',
+      aggregate_usage: 'sum'
+    },
+    metadata: {
+      nexer_business_id: businessId,
+      daily_rate: newDailyRate.toString()
+    }
+  });
+
+  console.log('Created new price:', newPrice.id, 'with daily rate:', newDailyRate);
+
+  const updatedSubscription = await stripe.instance.subscriptions.update(subscriptionId, {
+    items: [{
+      id: subscriptionItemId,
+      price: newPrice.id,
+    }],
+    proration_behavior: 'none',
+  });
+
+  for (const oldPrice of oldPrices.data) {
+    if (oldPrice.id !== newPrice.id) {
+      try {
+        await stripe.instance.prices.update(oldPrice.id, { active: false });
+        console.log('Archived old price:', oldPrice.id);
+      } catch (err) {
+        console.warn('Could not archive old price:', oldPrice.id, err.message);
+      }
+    }
+  }
+
+  return updatedSubscription;
+};
 
 /**
  * Construct webhook event

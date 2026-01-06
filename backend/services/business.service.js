@@ -1,7 +1,7 @@
 import httpStatus from 'http-status';
 import { Business, InvoiceRecord, SeatEventLog, UserSeat } from '../models/index.js';
 
-import { cancelSubscription, listInvoices, stripe } from './stripe.service.js';
+import { cancelSubscription, listInvoices, stripe, getUpcomingInvoice, updateSubscriptionPrice } from './stripe.service.js';
 import { generateApiKey, calculateEstimatedBill } from '../utils/billingUtils.js';
 
 /**
@@ -111,12 +111,34 @@ export const updateBusiness = async (id, data) => {
   // Update allowed fields
   if (name !== undefined) business.name = name;
   if (contactEmail !== undefined) business.contactEmail = contactEmail;
-  if (seatPriceAudCents !== undefined) {
+
+  // Handle price update - also update Stripe if subscription is active
+  if (seatPriceAudCents !== undefined && seatPriceAudCents !== business.seatPriceAudCents) {
     if (!Number.isInteger(seatPriceAudCents) || seatPriceAudCents < 0) {
       const error = new Error('seatPriceAudCents must be a non-negative integer');
       error.statusCode = httpStatus.BAD_REQUEST;
       throw error;
     }
+
+    // If billing is active, update Stripe subscription with new price
+    if (business.billingStatus === 'active' && business.stripeSubscriptionId && business.stripeSubscriptionItemId) {
+
+      try {
+        await updateSubscriptionPrice(
+          business.stripeSubscriptionId,
+          business.stripeSubscriptionItemId,
+          business._id.toString(),
+          seatPriceAudCents
+        );
+        console.log(`Updated Stripe price for business ${id} to ${seatPriceAudCents} cents`);
+      } catch (stripeErr) {
+        console.error('Failed to update Stripe price:', stripeErr.message);
+        const error = new Error('Failed to update Stripe subscription price: ' + stripeErr.message);
+        error.statusCode = httpStatus.INTERNAL_SERVER_ERROR;
+        throw error;
+      }
+    }
+
     business.seatPriceAudCents = seatPriceAudCents;
   }
 
@@ -171,6 +193,7 @@ export const getBusinessBilling = async (id) => {
 
   // If there's a Stripe customer, try to fetch latest invoices from Stripe
   let stripeInvoices = [];
+  let upcomingInvoiceAmount = null;
   if (business.stripeCustomerId) {
     try {
       const result = await listInvoices(business.stripeCustomerId, 5);
@@ -189,10 +212,28 @@ export const getBusinessBilling = async (id) => {
     } catch (stripeError) {
       console.error('Failed to fetch Stripe invoices:', stripeError);
     }
+
+    // Fetch upcoming invoice to get ACTUAL current billed amount from Stripe
+    // This reflects usage at the correct price points (even after price changes)
+    try {
+
+      const upcomingInvoice = await getUpcomingInvoice(business.stripeCustomerId);
+      if (upcomingInvoice) {
+        upcomingInvoiceAmount = upcomingInvoice.amount_due;
+      }
+    } catch (upcomingErr) {
+      console.error('Failed to fetch upcoming invoice:', upcomingErr.message);
+    }
   }
 
   // Calculate estimated bill using shared utility (async for per-user support)
   const estimatedBill = await calculateEstimatedBill(business, UserSeat);
+
+  // Override currentTotalCents with Stripe's actual amount if available
+  if (estimatedBill && upcomingInvoiceAmount !== null) {
+    estimatedBill.currentTotalCents = upcomingInvoiceAmount;
+    estimatedBill.currentTotalAud = (upcomingInvoiceAmount / 100).toFixed(2);
+  }
 
   return {
     billing: {
