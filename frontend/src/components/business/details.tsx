@@ -22,6 +22,7 @@ export function BusinessDetailsCard({
   const [editForm, setEditForm] = useState({
     name: business.name,
     contactEmail: business.contactEmail || '',
+    domain: business.domain || '',
     seatPriceAudCents: (business.seatPriceAudCents / 100).toFixed(2),
   });
 
@@ -31,6 +32,7 @@ export function BusinessDetailsCard({
       await onUpdate(business._id, {
         name: editForm.name,
         contactEmail: editForm.contactEmail,
+        domain: editForm.domain,
         seatPriceAudCents: Math.round(
           parseFloat(editForm.seatPriceAudCents) * 100
         ),
@@ -47,6 +49,7 @@ export function BusinessDetailsCard({
     setEditForm({
       name: business.name,
       contactEmail: business.contactEmail || '',
+      domain: business.domain || '',
       seatPriceAudCents: (business.seatPriceAudCents / 100).toFixed(2),
     });
     setEditing(false);
@@ -137,6 +140,22 @@ export function BusinessDetailsCard({
             />
           ) : (
             <p className='font-medium'>{business.contactEmail || '—'}</p>
+          )}
+        </div>
+
+        <div>
+          <label className='text-sm text-muted-foreground'>Domain</label>
+          {editing ? (
+            <Input
+              value={editForm.domain}
+              onChange={(e) =>
+                setEditForm({ ...editForm, domain: e.target.value })
+              }
+              className='mt-1'
+              placeholder='example.com'
+            />
+          ) : (
+            <p className='font-medium'>{business.domain || '—'}</p>
           )}
         </div>
 

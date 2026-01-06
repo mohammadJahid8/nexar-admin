@@ -3,6 +3,7 @@ export interface Business {
   name: string;
   externalBusinessId: string;
   contactEmail?: string;
+  domain?: string;
   seatPriceAudCents: number;
   currency: string;
   apiKey: string;
@@ -43,6 +44,7 @@ export interface CreateBusinessRequest {
 export interface UpdateBusinessRequest {
   name?: string;
   contactEmail?: string;
+  domain?: string;
   seatPriceAudCents?: number;
 }
 
