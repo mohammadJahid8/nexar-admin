@@ -42,6 +42,7 @@ export const createBusiness = async (data) => {
     contactEmail,
     seatPriceAudCents,
     apiKey,
+    domain: data.domain,
   });
 
   return { business: business.toJSON(), apiKey };
