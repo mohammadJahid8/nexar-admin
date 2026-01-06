@@ -16,6 +16,7 @@ router.post('/billing/run-daily', AdminController.triggerDailyBilling);
 // Businesses
 router.post('/businesses', AdminController.createBusiness);
 router.get('/businesses', AdminController.listBusinesses);
+router.post('/businesses/bulk-delete', AdminController.bulkDeleteBusinesses);
 router.get('/businesses/:id', AdminController.getBusiness);
 router.patch('/businesses/:id', AdminController.updateBusiness);
 router.delete('/businesses/:id', AdminController.deleteBusiness);

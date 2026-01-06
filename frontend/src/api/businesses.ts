@@ -103,6 +103,21 @@ export const businessApi = {
     );
     return response.data;
   },
+
+  /**
+   * Bulk delete businesses
+   */
+  bulkDelete: async (ids: string[]) => {
+    const response = await api.post<
+      ApiResponse<{
+        deletedCount: number;
+        failedCount: number;
+        deleted: string[];
+        failed: { id: string; error: string }[];
+      }>
+    >('/admin/businesses/bulk-delete', { ids });
+    return response.data;
+  },
 };
 
 export interface DashboardStats {

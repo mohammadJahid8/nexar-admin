@@ -133,12 +133,28 @@ const deleteBusiness = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Bulk delete businesses
+ */
+const bulkDeleteBusinesses = catchAsync(async (req, res) => {
+  const { ids } = req.body;
+  const result = await BusinessService.bulkDeleteBusinesses(ids);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Successfully deleted ${result.deletedCount} businesses`,
+    data: result,
+  });
+});
+
 export const AdminController = {
   createBusiness,
   listBusinesses,
   getBusiness,
   updateBusiness,
   deleteBusiness,
+  bulkDeleteBusinesses,
   resetApiKey,
   getBusinessBilling,
   getDashboardStats,

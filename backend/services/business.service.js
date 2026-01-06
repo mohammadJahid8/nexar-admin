@@ -375,6 +375,40 @@ export const deleteBusiness = async (id) => {
   return { deleted: true, businessId: id };
 };
 
+/**
+ * Bulk delete multiple businesses
+ * Deletes each business along with its Stripe resources and related data
+ */
+export const bulkDeleteBusinesses = async (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    const error = new Error('ids must be a non-empty array');
+    error.statusCode = httpStatus.BAD_REQUEST;
+    throw error;
+  }
+
+  const results = {
+    deleted: [],
+    failed: [],
+  };
+
+  for (const id of ids) {
+    try {
+      await deleteBusiness(id);
+      results.deleted.push(id);
+    } catch (err) {
+      console.error(`Failed to delete business ${id}:`, err.message);
+      results.failed.push({ id, error: err.message });
+    }
+  }
+
+  return {
+    deletedCount: results.deleted.length,
+    failedCount: results.failed.length,
+    deleted: results.deleted,
+    failed: results.failed,
+  };
+};
+
 
 export const BusinessService = {
   createBusiness,
@@ -382,6 +416,7 @@ export const BusinessService = {
   getBusinessById,
   updateBusiness,
   deleteBusiness,
+  bulkDeleteBusinesses,
   resetBusinessApiKey,
   getBusinessBilling,
   getDashboardStats
