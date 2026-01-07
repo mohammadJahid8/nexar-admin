@@ -154,6 +154,6 @@ export function initDailyBillingJob() {
     await runDailyBilling();
   });
 
-  console.log('[DailyBilling] Cron job scheduled to run every 2 minutes (TESTING MODE)');
+  console.log('[DailyBilling] Cron job scheduled to run every hour');
 }
 
