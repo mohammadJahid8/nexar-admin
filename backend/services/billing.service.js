@@ -218,7 +218,8 @@ export const getEstimatedBill = async (business) => {
  * Get invoices
  */
 export const getInvoices = async (business, limit = 20) => {
-  if (!business.stripeCustomerId) return { invoices: [] };
+
+  if (!business.stripeCustomerId) return [];
 
   const result = await listInvoices(business.stripeCustomerId, parseInt(limit));
 
@@ -232,6 +233,7 @@ export const getInvoices = async (business, limit = 20) => {
     invoicePdf: inv.invoice_pdf,
     created: new Date(inv.created * 1000)
   }));
+
 
   return invoices || [];
 };
