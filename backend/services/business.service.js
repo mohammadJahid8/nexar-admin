@@ -409,6 +409,93 @@ export const bulkDeleteBusinesses = async (ids) => {
   };
 };
 
+/**
+ * Sync subscription status from Stripe
+ * Fetches the actual subscription status from Stripe and updates the local database
+ */
+export const syncSubscriptionStatus = async (id) => {
+  const business = await Business.findById(id);
+
+  if (!business) {
+    const error = new Error('Business not found');
+    error.statusCode = httpStatus.NOT_FOUND;
+    throw error;
+  }
+
+  if (!business.stripeSubscriptionId) {
+    return {
+      synced: false,
+      message: 'No Stripe subscription found',
+      business: business.toJSON()
+    };
+  }
+
+  try {
+    const subscription = await stripe.instance.subscriptions.retrieve(business.stripeSubscriptionId);
+
+    const previousStatus = business.billingStatus;
+
+    // Map Stripe status to our status
+    switch (subscription.status) {
+      case 'active':
+      case 'trialing':
+        business.billingStatus = 'active';
+        break;
+      case 'past_due':
+      case 'unpaid':
+        business.billingStatus = 'past_due';
+        break;
+      case 'canceled':
+      case 'incomplete_expired':
+        business.billingStatus = 'canceled';
+        break;
+      case 'incomplete':
+      case 'paused':
+        business.billingStatus = 'pending_checkout';
+        break;
+    }
+
+    // Update cancel at period end info
+    business.cancelAtPeriodEnd = subscription.cancel_at_period_end || false;
+    business.cancelAt = subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null;
+
+    // Update period dates
+    if (subscription.current_period_start) {
+      business.currentPeriodStart = new Date(subscription.current_period_start * 1000);
+    }
+    if (subscription.current_period_end) {
+      business.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+    }
+
+    await business.save();
+
+    return {
+      synced: true,
+      previousStatus,
+      newStatus: business.billingStatus,
+      stripeStatus: subscription.status,
+      cancelAtPeriodEnd: business.cancelAtPeriodEnd,
+      business: business.toJSON()
+    };
+  } catch (stripeErr) {
+    // Subscription might be deleted
+    if (stripeErr.code === 'resource_missing') {
+      business.billingStatus = 'canceled';
+      business.cancelAtPeriodEnd = false;
+      business.cancelAt = null;
+      await business.save();
+
+      return {
+        synced: true,
+        message: 'Subscription not found in Stripe, marked as canceled',
+        newStatus: 'canceled',
+        business: business.toJSON()
+      };
+    }
+    throw stripeErr;
+  }
+};
+
 
 export const BusinessService = {
   createBusiness,
@@ -419,6 +506,7 @@ export const BusinessService = {
   bulkDeleteBusinesses,
   resetBusinessApiKey,
   getBusinessBilling,
-  getDashboardStats
+  getDashboardStats,
+  syncSubscriptionStatus
 };
 

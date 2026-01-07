@@ -22,5 +22,6 @@ router.patch('/businesses/:id', AdminController.updateBusiness);
 router.delete('/businesses/:id', AdminController.deleteBusiness);
 router.post('/businesses/:id/reset-api-key', AdminController.resetApiKey);
 router.get('/businesses/:id/billing', AdminController.getBusinessBilling);
+router.post('/businesses/:id/sync-subscription', AdminController.syncSubscription);
 
 export default router;

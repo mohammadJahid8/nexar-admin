@@ -148,6 +148,20 @@ const bulkDeleteBusinesses = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * Sync subscription status from Stripe
+ */
+const syncSubscription = catchAsync(async (req, res) => {
+  const result = await BusinessService.syncSubscriptionStatus(req.params.id);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: result.synced ? 'Subscription synced successfully' : 'No sync required',
+    data: result,
+  });
+});
+
 export const AdminController = {
   createBusiness,
   listBusinesses,
@@ -159,4 +173,5 @@ export const AdminController = {
   getBusinessBilling,
   getDashboardStats,
   triggerDailyBilling,
+  syncSubscription,
 };

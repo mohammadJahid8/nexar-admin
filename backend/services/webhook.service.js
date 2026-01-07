@@ -159,18 +159,24 @@ async function handleInvoicePaid(invoice) {
   const business = await Business.findOne({ stripeCustomerId: invoice.customer });
   if (!business) return null;
 
-  // Always set to active when invoice is paid
-  business.billingStatus = 'active';
-
   // Reset cumulative tracking for new billing period
   business.cumulativeSeatDays = 0;
 
-  // Fetch the current subscription to get the CURRENT period dates
-  // (invoice contains the PAID period dates, not the current period)
+  // Fetch the current subscription to check its status and get period dates
   if (business.stripeSubscriptionId) {
     try {
-
       const subscription = await getSubscription(business.stripeSubscriptionId);
+
+      // Only set to active if subscription is actually active
+      // Don't override 'canceled' status if subscription was canceled
+      if (subscription.status === 'active' || subscription.status === 'trialing') {
+        business.billingStatus = 'active';
+      } else if (subscription.status === 'canceled') {
+        business.billingStatus = 'canceled';
+        console.log(`[Webhook] Invoice paid but subscription is canceled, keeping status as canceled`);
+      } else if (subscription.status === 'past_due' || subscription.status === 'unpaid') {
+        business.billingStatus = 'past_due';
+      }
 
       if (subscription.current_period_start) {
         business.currentPeriodStart = new Date(subscription.current_period_start * 1000);
@@ -179,13 +185,19 @@ async function handleInvoicePaid(invoice) {
         business.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
       }
     } catch (err) {
-      console.error('Failed to fetch subscription period:', err.message);
-      // Fallback to invoice period if subscription fetch fails
-      if (invoice.period_start) {
-        business.currentPeriodStart = new Date(invoice.period_start * 1000);
-      }
-      if (invoice.period_end) {
-        business.currentPeriodEnd = new Date(invoice.period_end * 1000);
+      // Subscription might not exist anymore (deleted)
+      if (err.code === 'resource_missing') {
+        business.billingStatus = 'canceled';
+        console.log(`[Webhook] Invoice paid but subscription not found, setting status to canceled`);
+      } else {
+        console.error('Failed to fetch subscription period:', err.message);
+        // Fallback to invoice period if subscription fetch fails
+        if (invoice.period_start) {
+          business.currentPeriodStart = new Date(invoice.period_start * 1000);
+        }
+        if (invoice.period_end) {
+          business.currentPeriodEnd = new Date(invoice.period_end * 1000);
+        }
       }
     }
   }
@@ -196,7 +208,7 @@ async function handleInvoicePaid(invoice) {
   await business.save();
   await InvoiceRecord.upsertFromStripeInvoice(business._id, invoice);
 
-  console.log(`[Webhook] Invoice paid for ${business.externalBusinessId}, reset billing period`);
+  console.log(`[Webhook] Invoice paid for ${business.externalBusinessId}, status: ${business.billingStatus}`);
   return business._id;
 }
 
@@ -281,13 +293,29 @@ async function handleSubscriptionUpdated(subscription) {
  * Handle subscription deleted
  */
 async function handleSubscriptionDeleted(subscription) {
-  const business = await Business.findOne({ stripeSubscriptionId: subscription.id });
-  if (!business) return null;
+  console.log(`[Webhook] Processing subscription deleted: ${subscription.id}, status: ${subscription.status}`);
+
+  let business = await Business.findOne({ stripeSubscriptionId: subscription.id });
+
+  // Fallback: try finding by customer ID if subscription ID lookup fails
+  if (!business && subscription.customer) {
+    console.log(`[Webhook] Subscription ID lookup failed, trying customer ID: ${subscription.customer}`);
+    business = await Business.findOne({ stripeCustomerId: subscription.customer });
+  }
+
+  if (!business) {
+    console.log(`[Webhook] No business found for subscription ${subscription.id} or customer ${subscription.customer}`);
+    return null;
+  }
+
+  console.log(`[Webhook] Found business: ${business.externalBusinessId}, current status: ${business.billingStatus}`);
 
   business.billingStatus = 'canceled';
   business.cancelAtPeriodEnd = false;
   business.cancelAt = null;
   await business.save();
+
+  console.log(`[Webhook] Business ${business.externalBusinessId} status updated to 'canceled'`);
   return business._id;
 }
 

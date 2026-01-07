@@ -9,6 +9,7 @@ import { verifyToken, getCurrentUser } from '../services/auth.service.js';
 
 const adminAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
+  console.log('🚀 ~ adminAuth ~ authHeader:', authHeader)
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
@@ -19,6 +20,7 @@ const adminAuth = async (req, res, next) => {
 
   const token = authHeader.split(' ')[1];
   const decoded = verifyToken(token);
+  console.log('🚀 ~ adminAuth ~ decoded:', decoded)
 
   if (!decoded) {
     return res.status(401).json({
