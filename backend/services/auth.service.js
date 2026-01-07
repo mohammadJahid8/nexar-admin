@@ -2,13 +2,14 @@ import jwt from 'jsonwebtoken';
 import httpStatus from 'http-status';
 import { AdminUser } from '../models/index.js';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
+
 
 /**
  * Generate JWT token for admin user
  */
 const generateToken = (userId) => {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
   return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
@@ -16,6 +17,7 @@ const generateToken = (userId) => {
  * Verify JWT token and return payload
  */
 export const verifyToken = (token) => {
+  const JWT_SECRET = process.env.JWT_SECRET;
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (_err) {
