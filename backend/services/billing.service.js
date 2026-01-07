@@ -233,7 +233,7 @@ export const getInvoices = async (business, limit = 20) => {
     created: new Date(inv.created * 1000)
   }));
 
-  return { invoices };
+  return invoices;
 };
 
 /**
