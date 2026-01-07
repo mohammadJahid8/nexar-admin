@@ -75,24 +75,15 @@ export const activateBilling = async (businessId) => {
   business.cumulativeSeatDays = 0;
 
   await business.save();
-
-  // No initial seat-day report - first sync will report Day 1's usage
-  // This prevents double-counting activation day
-
   console.log('Billing activated for', business.externalBusinessId);
   return business;
 };
 
-/**
- * Sync seats with per-user tracking
- * Requires activeUserIds array for accurate per-user billing.
- * 
- * Uses MongoDB transaction to prevent race conditions from concurrent requests
- */
+
 export const syncSeats = async (business, data) => {
   const { activeUserIds, reason } = data;
 
-  // Validate input - only activeUserIds is supported
+
   if (!Array.isArray(activeUserIds) || activeUserIds.length < 1) {
     const error = new Error('activeUserIds array is required and must contain at least 1 user');
     error.statusCode = httpStatus.BAD_REQUEST;

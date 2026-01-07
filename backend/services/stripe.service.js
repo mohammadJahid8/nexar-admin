@@ -17,6 +17,40 @@ function getStripe() {
 export const stripe = { get instance() { return getStripe(); } };
 
 /**
+ * Get or create an inclusive 10% Australian GST tax rate
+ * This tax rate is shared across all businesses
+ */
+async function getOrCreateGstTaxRate() {
+  console.log('Getting or creating GST tax rate');
+  // Search for existing active inclusive GST tax rate
+  const taxRates = await stripe.instance.taxRates.list({ active: true, limit: 100 });
+  const existing = taxRates.data.find(tr =>
+    tr.display_name === 'GST' &&
+    tr.percentage === 10 &&
+    tr.inclusive === true &&
+    tr.country === 'AU'
+  );
+
+  if (existing) {
+    console.log('Found existing GST tax rate:', existing.id);
+    return existing.id;
+  }
+
+  // Create new inclusive GST tax rate
+  const taxRate = await stripe.instance.taxRates.create({
+    display_name: 'GST',
+    description: 'Australian Goods and Services Tax (included in price)',
+    percentage: 10,
+    inclusive: true,
+    country: 'AU',
+    tax_type: 'gst',
+  });
+
+  console.log('Created GST tax rate:', taxRate.id);
+  return taxRate.id;
+}
+
+/**
  * Get or create metered price
  */
 async function getOrCreateMeteredPrice(businessId, seatPriceAudCents) {
@@ -41,6 +75,7 @@ async function getOrCreateMeteredPrice(businessId, seatPriceAudCents) {
     product: product.id,
     currency: 'aud',
     unit_amount: dailyRate,
+    tax_behavior: 'inclusive',
     recurring: {
       interval: 'month',
       usage_type: 'metered',
@@ -101,6 +136,7 @@ export const createMeteredSubscription = async ({ customerId, businessId, extern
   console.log('Creating metered subscription for:', businessId);
 
   const priceId = await getOrCreateMeteredPrice(businessId, seatPriceAudCents);
+  const gstTaxRateId = await getOrCreateGstTaxRate();
 
   const paymentMethods = await stripe.instance.paymentMethods.list({
     customer: customerId,
@@ -121,7 +157,7 @@ export const createMeteredSubscription = async ({ customerId, businessId, extern
 
   const subscription = await stripe.instance.subscriptions.create({
     customer: customerId,
-    items: [{ price: priceId }],
+    items: [{ price: priceId, tax_rates: [gstTaxRateId] }],
     billing_cycle_anchor: billingCycleAnchor,
     proration_behavior: 'none',
     metadata: {
@@ -201,7 +237,7 @@ export const listInvoices = async (customerId, limit = 10) => {
 export const getUpcomingInvoice = async (customerId) => {
   try {
     const response = await stripe.instance.rawRequest('GET', `/v1/invoices/upcoming?customer=${customerId}`);
-    console.log('🚀 ~ getUpcomingInvoice ~ response:', response);
+    // console.log('🚀 ~ getUpcomingInvoice ~ response:', response);
     return response;
   } catch (err) {
     if (err.code === 'invoice_upcoming_none') {
@@ -260,6 +296,7 @@ export const updateSubscriptionPrice = async (subscriptionId, subscriptionItemId
     product: productId,
     currency: 'aud',
     unit_amount: newDailyRate,
+    tax_behavior: 'inclusive',
     recurring: {
       interval: 'month',
       usage_type: 'metered',
@@ -273,10 +310,14 @@ export const updateSubscriptionPrice = async (subscriptionId, subscriptionItemId
 
   console.log('Created new price:', newPrice.id, 'with daily rate:', newDailyRate);
 
+  // Get GST tax rate for updated subscription item
+  const gstTaxRateId = await getOrCreateGstTaxRate();
+
   const updatedSubscription = await stripe.instance.subscriptions.update(subscriptionId, {
     items: [{
       id: subscriptionItemId,
       price: newPrice.id,
+      tax_rates: [gstTaxRateId],
     }],
     proration_behavior: 'none',
   });
