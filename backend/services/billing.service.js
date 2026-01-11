@@ -191,6 +191,7 @@ export const getBillingStatus = async (business) => {
     currentPeriodEnd: freshBusiness.currentPeriodEnd,
     cumulativeSeatDays: freshBusiness.cumulativeSeatDays || 0,
     domain: freshBusiness.domain,
+    email: freshBusiness.contactEmail,
   };
 };
 
